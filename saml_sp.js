@@ -34,6 +34,8 @@ function get_escapeXML() {
     }
 };
 
+const escapeXML = get_escapeXML();
+
 function createAuthnRequest_saml2_0(
     id,
     issueInstant,
@@ -43,8 +45,6 @@ function createAuthnRequest_saml2_0(
     forceAuthn,
     issuer
 ) {
-
-    const escapeXML = get_escapeXML();
 
     /* Apply escapeXML to all arguments, as they all are going to xml. */
         
