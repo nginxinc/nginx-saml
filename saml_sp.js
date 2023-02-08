@@ -16,7 +16,7 @@ const xml = require("xml");
 const querystring = require("querystring");
 const fs = require("fs");
 
-function get_escapeXML() {
+function getEscapeXML() {
     const fpc = Function.prototype.call;
     const _replace = fpc.bind(fpc, String.prototype.replace);
 
@@ -34,7 +34,7 @@ function get_escapeXML() {
     }
 };
 
-const escapeXML = get_escapeXML();
+const escapeXML = getEscapeXML();
 
 function createAuthnRequest_saml2_0(
     id,
