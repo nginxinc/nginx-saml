@@ -16,6 +16,25 @@ const xml = require("xml");
 const querystring = require("querystring");
 const fs = require("fs");
 
+function getEscapeXML() {
+    const fpc = Function.prototype.call;
+    const _replace = fpc.bind(fpc, String.prototype.replace);
+
+    const tbl = {
+        '<': '&lt;',
+        '>': '&gt;',
+        "'": '&apos;',
+        '"': '&quot;',
+        '&': '&amp;',
+    };
+    tbl.__proto__ = null;
+
+    return function (str) {
+        return _replace(str, /[<>'"&]/g, c => tbl[c]);
+    }
+};
+
+const escapeXML = getEscapeXML();
 
 function createAuthnRequest_saml2_0(
     id,
@@ -27,8 +46,16 @@ function createAuthnRequest_saml2_0(
     issuer
 ) {
 
-    // TBD: perform xml_escape for input strings 
-
+    /* Apply escapeXML to all arguments, as they all are going to xml. */
+        
+    id = escapeXML(id);
+    issueInstant = escapeXML(issueInstant);
+    destination = escapeXML(destination);
+    protocolBinding = escapeXML(protocolBinding);
+    assertionConsumerServiceUrl = escapeXML(assertionConsumerServiceUrl);
+    forceAuthn = escapeXML(forceAuthn);
+    issuer = escapeXML(issuer);
+    
     // if (assertionConsumerServiceUrl !== '') {
     //     assertionConsumerServiceUrl = ' AssertionConsumerServiceURL="'+assertionConsumerServiceUrl+'"'
     // }
