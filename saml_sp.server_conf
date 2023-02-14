@@ -4,6 +4,7 @@
     set $saml_request_id "";
 
     resolver 8.8.8.8; # For DNS lookup of IdP endpoints;
+    subrequest_output_buffer_size 32k; # To fit a complete SAML response
     gunzip on; # Decompress IdP responses if necessary
 
 # Advanced configuration END
@@ -14,12 +15,12 @@
         client_max_body_size 10m;
         client_body_buffer_size 128k;
         status_zone "SAMLSP code exchange";
-        js_content samlsp.process_idp_response;
-        error_page 500 502 504 @saml_error;
+        js_content samlsp.processIdpResponse;
+        error_page 500 502 504 @oidc_error; 
     }
 
     location @do_samlsp_flow {
-        js_content samlsp.send_saml_request_to_idp;
+        js_content samlsp.doAuthnRequest;
         set $cookie_auth_token "";
         # 'Internal Server Error', 'Bad Gateway', 'Gateway Timeout'
         error_page 500 502 504 @saml_error;
