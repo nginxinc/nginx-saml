@@ -74,7 +74,7 @@ async function processIdpResponse (r) {
     try {
         verifySAMLResponse(r, xmlDoc);
     } catch (e) {
-        samlError(r, 500, "processIdpResponse: Failed to parce SAML Response header. " +
+        samlError(r, 500, "processIdpResponse: Failed to parse SAML Response header. " +
                            e.message);
     }
 
@@ -124,21 +124,21 @@ async function processIdpResponse (r) {
                            e.message);
     }
 
-    // generate cookie_auth_token
+    /* Generate cookie_auth_token */
     const authToken =  "_" + generateID();
 
-    // Save cookie_auth_token to keyval to store SAML session data
+    /* Save cookie_auth_token to keyval to store SAML session data */
     r.variables.cookie_auth_token = authToken;
     r.variables.location_root_granted = '1';
 
-    // Get SAML Attributes
+    /* Get SAML Attributes */
     let xmlRoot = xmlDoc.Response.Assertion.AttributeStatement.$tags$Attribute;
     let attrs = getAttributes(xmlRoot);
     for (var attributeName in attrs) {
         if (attrs.hasOwnProperty(attributeName)) {
             var attributeValue = attrs[attributeName];
             
-            // Save attributeName and value to the key-value store
+            /* Save attributeName and value to the key-value store */
             try {
                 r.variables[attributeName] = attributeValue;
             } catch(e) {}
@@ -349,7 +349,7 @@ function verifySAMLConditions(xmlDoc, spEntityId) {
         throw new Error(`SAML response has expired. Current time is ${now} and NotOnOrAfter is ${notOnOrAfter}`);
     }
 
-    // Check the audience restriction
+    /* Check the audience restriction */
     if (conditions.AudienceRestriction && conditions.AudienceRestriction.Audience) {
         let audience = conditions.AudienceRestriction.Audience.$text;
         if (!Array.isArray(audience)) {
