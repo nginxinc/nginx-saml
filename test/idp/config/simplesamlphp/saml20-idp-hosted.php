@@ -23,6 +23,7 @@ $metadata['__DYNAMIC:1__'] = [
      */
     'auth' => 'example-userpass',
     'NameIDFormat' => 'urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress',
+    'simplesaml.nameidattribute' => 'email',
     'userid.attribute' => 'email',
     'SingleSignOnServiceBinding' => 'urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST',
     'SingleLogoutServiceBinding' => 'urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect',
