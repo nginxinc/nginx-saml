@@ -3,7 +3,6 @@
     set $internal_error_message "NGINX / SAMLSP login failure\n";
     set $saml_request_id "";
 
-    resolver 8.8.8.8; # For DNS lookup of IdP endpoints;
     subrequest_output_buffer_size 32k; # To fit a complete SAML response
     gunzip on; # Decompress IdP responses if necessary
 
@@ -14,9 +13,9 @@
         # This location is called by the IdP after successful authentication
         client_max_body_size 10m;
         client_body_buffer_size 128k;
-        status_zone "SAMLSP code exchange";
+        status_zone "SAMLSP ACS";
         js_content samlsp.processIdpResponse;
-        error_page 500 502 504 @oidc_error; 
+        error_page 500 502 504 @saml_error; 
     }
 
     location @do_samlsp_flow {
