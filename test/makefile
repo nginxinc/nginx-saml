@@ -11,7 +11,7 @@ IDP:=$(WORKDIR)/idp
 PREFIX:=$(WORKDIR)/nginx
 
 # SAML conf files
-CFLIST:=saml_sp.js frontend_server.conf saml_sp_configuration.conf saml_sp.server_conf
+CFLIST:=saml_sp.js pako.es5.js frontend_server.conf saml_sp_configuration.conf saml_sp.server_conf
 
 # this is needed to instrument code properly
 PROF_CFLAGS=-g -O2 -fstack-protector-strong -Wformat -Werror=format-security -Wp,-D_FORTIFY_SOURCE=2 -fPIC
