@@ -115,6 +115,14 @@ async function processIdpResponse (r) {
         samlError(r, 500, `processIdpResponse: Invalid SAML Assertion. ${e.message}`);
     }
 
+    /* Parse Assertion Subject */
+    let nameID;
+    try {
+        nameID = parseAssertionSubject(xmlDoc);
+    } catch (e) {
+        samlError(r, 500, `processIdpResponse: Invalid SAML Assertion Subject. ${e.message}`);
+    }
+
     /* Verify SAML conditions */
     const spEntityId = r.variables.saml_sp_entity_id;
     try {
@@ -130,6 +138,9 @@ async function processIdpResponse (r) {
     /* Save cookie_auth_token to keyval to store SAML session data */
     r.variables.cookie_auth_token = authToken;
     r.variables.location_root_granted = '1';
+
+    /* Save NameID to keyval */
+    r.variables.nameid = nameID;
 
     /* Get SAML Attributes */
     let xmlRoot = xmlDoc.Response.Assertion.AttributeStatement.$tags$Attribute;
@@ -329,6 +340,47 @@ function verifySAMLAssertion (xmlDoc, idpEntityID) {
     if (issueInstant > currentTime) {
         throw new Error('IssueInstant is in the future, which is invalid.');
     }
+}
+
+function parseAssertionSubject(xmlDoc, spEntityId) {
+    let root = xmlDoc.Response.Assertion.Subject;
+    if (!root) {
+        throw new Error("Subject element is missing in the SAML Assertion.");
+    }
+
+    /* Extract the NameID and NameID Format */
+    if (!root.NameID) {
+        throw new Error("NameID not found in Subject.");
+    }
+    const nameID = root.NameID.$text;
+    const nameIdFormat = root.NameID.$attr$Format;
+
+    /* Check SubjectConfirmation */
+    if (!root.SubjectConfirmation) {
+        throw new Error("SubjectConfirmation element is missing in the SAML Subject.");
+    }
+
+    /* Needs to be revised because the core spec is not very clear in this */
+    root = root.SubjectConfirmation;
+    const methodBearer = "urn:oasis:names:tc:SAML:2.0:cm:bearer";
+    if (root.$attr$Method === methodBearer) {
+
+        root = root.SubjectConfirmationData;
+        if (!root) {
+            throw new Error("SubjectConfirmationData element is missing in the SAML SubjectConfirmation.");
+        }
+
+        const now = new Date();
+        let notOnOrAfter = root.NotOnOrAfter ? new Date(root.NotOnOrAfter) : now;
+        if (notOnOrAfter < now) {
+            throw new Error(`The Subject has expired. Current time is ${now} and NotOnOrAfter is ${notOnOrAfter}`);
+        }
+
+        /* Need to add verification for InResponseTo */
+
+    }
+
+    return nameID;
 }
 
 function verifySAMLConditions(xmlDoc, spEntityId) {
