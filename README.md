@@ -94,22 +94,19 @@ Configuration can typically be completed automatically by using SAML Metadata. S
 
 Manual configuration involves reviewing the following files so that they match your IdP(s) configuration.
 
-- **saml_sp_configuration.conf** - this contains the primary configuration for one or more SPs and IdPs in `map{}` blocks
-  - Modify all of the `map…$saml_sp_` blocks to match your SP configuration
-  - Modify all of the `map…$saml_idp_` blocks to match your IdP configuration
-  - Modify the URI defined in `map…$saml_logout_redirect` to specify an unprotected resource to be displayed after requesting the `/logout` location
-  - If NGINX Plus is deployed behind another proxy or load balancer, modify the `map…$redirect_base` and `map…$proto` blocks to define how to obtain the original protocol and port number.
+- **saml_sp_configuration.conf** - this contains the primary configuration for one or more SPs and IdPs using `keyval` definition
+  - Check the [sample provisioning script](test/sp-provisioning/saml-keyval-provisioning.sh) for details on SP configuration. The current script must be run on the VM where NGINX SAML SP runs
 
 - **frontend.conf** - this is the reverse proxy configuration
   - Modify the upstream group to match your backend site or app
   - Configure the preferred listen port and [enable SSL/TLS configuration](https://docs.nginx.com/nginx/admin-guide/security-controls/terminating-ssl-http/)
   - Modify the severity level of the `error_log` directive to suit the deployment environment
 
-- **openid_connect.server_conf** - this is the NGINX configuration for handling IdP Responses 
+- **saml_sp.server_conf** - this is the NGINX configuration for handling IdP Responses 
   - No changes are usually required here
   - Modify the `client_body_buffer_size` directive to match the maximum size of IdP response (post body)
 
-- **openid_connect.js** - this is the JavaScript code for performing the SAML Authentication
+- **saml_sp.js** - this is the JavaScript code for performing the SAML Authentication
   - No changes are required
 
 ### Configuring the Key-Value Store
