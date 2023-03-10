@@ -33,7 +33,7 @@ $metadata['__DYNAMIC:1__'] = [
     'saml20.sign.response' => TRUE,
     'saml20.sign.assertion' => FALSE,
     'sign.logout' => FALSE,
-    'validate.authnrequest' => FALSE,
+    'validate.authnrequest' => TRUE,
     'validate.logout' => FALSE,
 
     'OrganizationName' => [

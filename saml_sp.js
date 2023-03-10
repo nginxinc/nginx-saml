@@ -4,132 +4,254 @@
  * Copyright (C) 2023 Nginx, Inc.
  */
 
-export default {doAuthnRequest, processIdpResponse};
+export default {sendAuthnRequest, processIdpResponse, sendSloRequest};
 
 const xml = require("xml");
 const querystring = require("querystring");
 const fs = require("fs");
 
-function doAuthnRequest(r) {
+
+async function sendAuthnRequest(r) {
+    /* Parse SAML configuration options */
+    let opt;
+    try {
+        opt = parseConfParams(r, 'AuthnRequest');
+    } catch (e) {
+        samlError(r, 500, `Failed to parse SAML SSO configuration options. ${e.message}`);
+        return;
+    }
+
     /* Generate authentication request ID with 160 bits of entropy */
     const requestID = "_" + generateID(20);
     r.variables.saml_request_id = requestID;
 
     /* Create authentication request XML payload */
-    const escapeXML = getEscapeXML();
-    const ssoUrl = escapeXML(r.variables.saml_idp_sso_url);
-    const acsUrl = escapeXML(r.variables.saml_sp_acs_url);
-    const forceAuthn = escapeXML(r.variables.saml_sp_force_authn);
-    const issuer = escapeXML(r.variables.saml_sp_entity_id);
-    const nameidFormat = escapeXML(r.variables.saml_sp_nameid_format);
-    let xmlData = createAuthnRequest(requestID, ssoUrl, acsUrl, forceAuthn, issuer, nameidFormat);
-
-    xmlData = normalizeXml(xmlData);
-
-    if (r.variables.saml_idp_sign_authn === "true") {
-        samlError(r, 500, "doAuthnRequest: AuthN Request Signing not supported yet.");
-        return;
+    let xmlData;
+    try {
+        xmlData = await createAuthnRequest(requestID, opt.idpServiceUrl, opt.spServiceUrl, opt.forceAuthn,
+                                           opt.spEntityId, opt.nameidFormat, opt.requestSigned,
+                                           opt.spPrivKey);
+    } catch (e) {
+        samlError(r, 500, "Failed to create AuthN request. " + e.message);
     }
 
     /* Send AuthN request to the IdP using POST or Redirect method */
-    const relayState = r.variables.saml_sp_relay_state;
-    const spRequestBinding = r.variables.saml_sp_request_binding;
-    if (spRequestBinding === 'HTTP-POST') {
+    if (opt.spBind === 'HTTP-POST') {
         r.headersOut['Content-Type'] = "text/html";
-        r.return(200, postAuthnRequest(xmlData, ssoUrl, relayState));
-    } else if (spRequestBinding === 'HTTP-Redirect') {
-        r.return(302, redirectAuthnRequest(xmlData, ssoUrl, relayState));
+        r.return(200, postSAMLRequest(xmlData, opt.idpServiceUrl, opt.relayState));
     } else {
-        samlError(r, 500, `doAuthnRequest: ${spRequestBinding} is an unsupported AuthN Request ` +
-                           "binding method.");
+        r.return(302, redirectSAMLRequest(xmlData, opt.idpServiceUrl, opt.relayState));
     }
 
     /* Map AuthN request ID to a pending SP-initiated session */
-    r.variables.saml_have_session = "1";
+    r.variables.saml_request_inuse = "1";
 }
 
-async function processIdpResponse (r) {
-    /* Extract SAML parameters from the POST body */
-    let postParams, samlResponse, relayState;
+async function sendSloRequest(r) {
+    const nameid = r.variables.nameid;
+    if (!nameid) {
+        samlError(r, 401, 'No SAML SSO session found.');
+        return;
+    }
+
+    /* Parse SAML configuration options */
+    const messageType = "LogoutRequest";
+    let opt;
     try {
-        postParams = parsePostPayload(r.requestText);
-        samlResponse = postParams[0];
-        relayState = postParams[1];
+        opt = parseConfParams(r, messageType);
     } catch (e) {
-        samlError(r, 500, "processIdpResponse: Failed to extract SAMLResponse parameter " +
-                          `from the POST body. ${e.message}`);
+        samlError(r, 500, `Failed to parse SAML SSO configuration options. ${e.message}`);
+        return;
+    }
+
+    /* Generate LogoutRequest ID with 160 bits of entropy */
+    const requestID = "_" + generateID(20);
+    r.variables.saml_request_id = requestID;
+
+    /* Create LogoutRequest XML payload */
+    let xmlData;
+    try {
+        xmlData = await createLogoutRequest(requestID, opt.idpServiceUrl, opt.spEntityId, nameid,
+                                            opt.requestSigned, opt.spPrivKey);
+    } catch (e) {
+        samlError(r, 500, `Failed to create SLO request. ${e.message}`);
+    }
+
+    if (opt.requestBinding === 'HTTP-POST') {
+        r.headersOut['Content-Type'] = "text/html";
+        r.return(200, postSAMLRequest(xmlData, opt.idpServiceUrl, opt.relayState));
+    } else {
+        r.return(302, redirectSAMLRequest(xmlData, opt.idpServiceUrl, opt.relayState));
+    }
+
+    /* Map SLO request ID to a pending SP-initiated Single Logout */
+    r.variables.saml_request_inuse = "1";
+}
+
+async function sendSloResponse(r, opt) {
+    r.error("SAML: sendSloResponse: " + JSON.stringify(opt));
+    const statusCode = opt.nameid !== r.variables.nameid ?
+                                      'urn:oasis:names:tc:SAML:2.0:status:Responder' :
+                                      'urn:oasis:names:tc:SAML:2.0:status:Success';
+
+    const requestID = "_" + generateID(20);
+    r.variables.saml_request_id = requestID;
+
+    let xmlData;
+    try {
+        xmlData = await createLogoutResponse(requestID, opt.inResponseTo, opt.idpServiceUrl,
+                                             opt.spEntityId, statusCode, opt.requestSigned,
+                                             opt.spPrivKey);
+    } catch (e) {
+        samlError(r, 500, `Failed to create LogoutResponse message: ${e.message}`);
+        return;
+    }
+
+    r.log("SAML logout for " + r.variables.nameid);
+    r.variables.location_root_granted = "-";
+    r.variables.nameid  = "-";
+    r.headersOut["Set-Cookie"] = "auth_token=" + "; " + r.variables.saml_cookie_flags;
+    if (opt.requestBinding === 'HTTP-POST') {
+        r.headersOut['Content-Type'] = "text/html";
+        r.return(200, postSAMLRequest(xmlData, opt.idpServiceUrl, opt.relayState));
+    } else {
+        r.return(302, redirectSAMLRequest(xmlData, opt.idpServiceUrl, opt.relayState));
+    }
+}
+
+async function processIdpResponse(r) {
+    let payload;
+    switch (r.method) {
+    case 'GET':
+        if (!r.variables.arg_SAMLResponse && !r.variables.arg_SAMLRequest) {
+            r.return(401, "Unsupported method\n");
+            return;
+        }
+        payload = r.variables.args;
+        break;
+
+    case 'POST':
+        payload  = r.requestText;
+        if (r.headersIn['Content-Type'] != 'application/x-www-form-urlencoded'
+            || !payload.length)
+        {
+            r.return(401, "Unsupported method\n");
+            return;
+        }
+        break;
+
+    default:
+        r.return(401, "Unsupported method\n");
+        return;
+    }
+
+    const method = r.method;
+    let samlParams;
+    try {
+        samlParams = extractSamlParams(payload, method);
+    } catch (e) {
+        samlError(r, 500, `Failed to extract SAMLResponse parameter from the ${method} request: ` +
+                           e.message);
+        return;
     }
 
     /* Parse SAML response for an XML document */
     let xmlDoc;
     try { 
-        xmlDoc = xml.parse(samlResponse);
+        xmlDoc = xml.parse(samlParams.SAMLResponse);
     } catch (e) {
-        samlError(r, 500, "processIdpResponse: Failed to parse SAMLResponse for an XML " +
-                          `document. ${e.message}`);
+        samlError(r, 500, "Failed to parse SAMLResponse for an XML document: " +
+                           e.message);
+        return;
+    }
+
+    /* Extract SAML message type from XML */
+    let messageType;
+    try {
+        messageType = getMessageType(xmlDoc);
+    } catch (e) {
+        samlError(r, 500, e.message);
+        return;
+    }
+
+    /* Parse SAML configuration parameters */
+    let opt;
+    try {
+        opt = parseConfParams(r, messageType);
+    } catch (e) {
+        samlError(r, 500, `Failed to parse SAML SSO configuration parameters: ${e.message}`);
         return;
     }
 
     /* Verify SAML response header */
+    let id;
     try {
-        verifySAMLResponse(r, xmlDoc);
+        let root = xmlDoc[messageType];
+        id = await verifyBasicRequirements(r, root, opt);
     } catch (e) {
-        samlError(r, 500, "processIdpResponse: Failed to parse SAML Response header. " +
-                           e.message);
+        samlError(r, 500, `Failed to process ${messageType}: ${e.message}`);
+        return;
     }
 
-    /* Verify SAML response signature */
-    const wantSignedAssertion = r.variables.saml_sp_want_signed_assertion;
-    const idpCertificate = r.variables.saml_idp_verification_certificate;
-    if (wantSignedAssertion === "true") {
-        let keyData;
-        try {
-            keyData = fs.readFileSync(idpCertificate);
-        } catch (e) {
-            samlError(r, 500, "processIdpResponse: Failed to read IdP verification certificate " +
-                              `from file "${idpCertificate}". ${e.message}`);
-        }
-
-        try {
-            if (!await verifySAMLSignature(xmlDoc, keyData)) {
-                throw new Error(`Certificate "${idpCertificate}" may be invalid.`);
-            }
-        } catch (e) {
-            samlError(r, 500, "processIdpResponse: SAML Assertion signature check failed. " +
-                               e.message);
-        }
+    if (messageType === "LogoutRequest") {
+        const root = xmlDoc[messageType];
+        opt.nameid = root.NameID ? root.NameID.$text : undefined;
+        opt.inResponseTo = id;
+        opt.relayState = samlParams.RelayState;
+        sendSloResponse(r, opt);
+        return;
     }
 
-    /* Verify SAML Response status */
+    /* Verify Response or LogoutResponse status */
     try {
-        verifyResponseStatus(xmlDoc);
+        verifyStatus(xmlDoc);
     } catch (e) {
-        samlError(r, 403, `processIdpResponse: SAML status not successful: ${e.message}`);
+        samlError(r, 403, `${messageType} status not successful: ${e.message}`);
+        return;
     }
 
-    /* Verify SAML Assertion */
-    const idpEntityID = r.variables.saml_idp_entity_id;
-    try {
-        verifySAMLAssertion(xmlDoc, idpEntityID);
-    } catch (e) {
-        samlError(r, 500, `processIdpResponse: Invalid SAML Assertion. ${e.message}`);
+    if (messageType === "LogoutResponse") {
+        processLogout(r, samlParams.RelayState);
+        return;
     }
 
-    /* Parse Assertion Subject */
-    let nameID;
-    try {
-        nameID = parseAssertionSubject(xmlDoc);
-    } catch (e) {
-        samlError(r, 500, `processIdpResponse: Invalid SAML Assertion Subject. ${e.message}`);
+    /* Verify SAML Assertion     r.error("processSLO part done: " + JSON.stringify(root));*/
+    if (xmlDoc[messageType].EncryptedAssertion) {
+        samlError(r, 500, "Failed to process Assertion: Assertion is encrypted");
     }
 
-    /* Verify SAML conditions */
-    const spEntityId = r.variables.saml_sp_entity_id;
     try {
-        verifySAMLConditions(xmlDoc, spEntityId);
+        let root = xmlDoc[messageType].Assertion;
+        await verifyBasicRequirements(r, root, opt);
     } catch (e) {
-        samlError(r, 500, "processIdpResponse: Failed to verify SAML Response conditions. " +
-                           e.message);
+        samlError(r, 500, `Failed to process Assertion: ${e.message}`);
+        return;
+    }
+
+    /* Verify Assertion Subject */
+    let subject;
+    try {
+        subject = parseSubject(xmlDoc);
+    } catch (e) {
+        samlError(r, 500, `Invalid SAML Assertion Subject: ${e.message}`);
+        return;
+    }
+
+    /* Verify Assertion conditions */
+    try {
+        verifyConditions(xmlDoc, opt.spEntityId);
+    } catch (e) {
+        samlError(r, 500, `Failed to verify Assertion Conditions element: ${e.message}`);
+        return;
+    }
+
+    /* Verify Assertion AuthnStatement */
+    let authnStatement;
+    try {
+        authnStatement = parseAuthnStatement(xmlDoc);
+    } catch (e) {
+        samlError(r, 500, `Failed to verify Assertion AuthnStatement element: ${e.message}`);
+        return;
     }
 
     /* Generate cookie_auth_token */
@@ -139,8 +261,20 @@ async function processIdpResponse (r) {
     r.variables.cookie_auth_token = authToken;
     r.variables.location_root_granted = '1';
 
-    /* Save NameID to keyval */
-    r.variables.nameid = nameID;
+    /* Save SAML-related variables to keyval */
+    r.variables.nameid = subject.nameID;
+
+    if (authnStatement.SessionIndex) {
+        try {
+            r.variables.sessionindex = authnStatement.SessionIndex;
+        } catch(e) {}
+    }
+
+    if (authnStatement.AuthnContextClassRef) {
+        try {
+            r.variables.authncontextclassref = authnStatement.AuthnContextClassRef;
+        } catch(e) {}
+    }
 
     /* Get SAML Attributes */
     let xmlRoot = xmlDoc.Response.Assertion.AttributeStatement.$tags$Attribute;
@@ -158,13 +292,14 @@ async function processIdpResponse (r) {
 
     r.log("SAML SP success, creating session " + authToken);
 
+    r.variables.saml_response_used = '1';
     r.headersOut["Set-Cookie"] = "auth_token=" + r.variables.cookie_auth_token + "; " + r.variables.saml_cookie_flags;
     r.return(302, "/");
 }
 
 function samlError(r, http_code, msg) {
-    r.error("samlsp." + msg);
-    r.return(http_code, "samlsp." + msg);
+    r.error("SAML SSO: " + msg);
+    r.return(http_code, "SAML SSO: " + msg);
 }
 
 function generateID(keyLength) {
@@ -191,59 +326,343 @@ function getEscapeXML() {
     }
 };
 
-function createAuthnRequest(requestID, ssoUrl, acsUrl, forceAuthn, issuer, nameidFormat) {
+function parseConfParams(r, messageType) {
+    const escapeXML = getEscapeXML();
+    let opt = {};
+
+    /* SP Entity ID */
+    opt.spEntityId = escapeXML(r.variables.saml_sp_entity_id);
+    if (!isUrlOrUrn(opt.spEntityId)) {
+        throw Error(`Invalid "saml_sp_entity_id": "${opt.spEntityId}", must be URI.`);
+    }
+
+    /* IDP Entity ID */
+    opt.idpEntityId = escapeXML(r.variables.saml_idp_entity_id);
+    if (!isUrlOrUrn(opt.idpEntityId)) {
+        throw Error(`Invalid "saml_idp_entity_id": "${opt.idpEntityId}", must be URI.`);
+    }
+
+    if (messageType == 'Response') {
+        /* SP requires SAML Response to be signed */
+        opt.wantSignedResponse = r.variables.saml_sp_want_signed_response.toLowerCase();
+        if (opt.wantSignedResponse !== 'true' && opt.wantSignedResponse !== 'false') {
+            throw Error(`Invalid "saml_sp_want_signed_response": "${opt.wantSignedResponse}", ` +
+                        `must be "true" or "false".`);
+        }
+        opt.wantSignedResponse = (opt.wantSignedResponse === 'true');
+
+        /* SP requires SAML Assertion to be signed */
+        opt.wantSignedAssert = r.variables.saml_sp_want_signed_assertion.toLowerCase();
+        if (opt.wantSignedAssert !== 'true' && opt.wantSignedAssert !== 'false') {
+            throw Error(`Invalid "saml_sp_want_signed_assertion": "${opt.wantSignedAssert}", ` +
+                        `must be "true" or "false".`);
+        }
+        opt.wantSignedAssert = (opt.wantSignedAssert === 'true');
+    }
+
+    if (messageType == "AuthnRequest") {
+        /* SP AuthnRequest binding method */
+        opt.requestBinding = r.variables.saml_sp_request_binding;
+        if (opt.requestBinding !== "HTTP-POST" && opt.requestBinding !== "HTTP-Redirect") {
+            throw Error(`Invalid "saml_sp_request_binding": "${opt.requestBinding}", ` +
+                        `must be "HTTP-POST" or "HTTP-Redirect".`);
+        }
+
+        /* IDP requires SAML AuthnRequest to be signed */
+        opt.requestSigned = r.variables.saml_idp_sign_authn.toLowerCase();
+        if (opt.requestSigned !== "true" && opt.requestSigned !== "false") {
+            throw Error(`Invalid "saml_idp_sign_authn": "${opt.requestSigned}", ` +
+                        `must be "true" or "false".`);
+        }
+        opt.requestSigned = (opt.requestSigned === 'true');
+
+        /* SP ForceAuthn */
+        opt.forceAuthn = r.variables.saml_sp_force_authn.toLowerCase();
+        if (opt.forceAuthn !== 'true' && opt.forceAuthn !== 'false') {
+            throw Error(`Invalid "saml_sp_force_authn": "${opt.forceAuthn}", ` +
+                        `must be "true" or "false".`);
+        }
+        opt.forceAuthn = (opt.forceAuthn === 'true');
+
+        /* SP NameID Format */
+        opt.nameidFormat = r.variables.saml_sp_nameid_format;
+        if (!isValidNameIdFormat(opt.nameidFormat)) {
+            throw Error(`Invalid "saml_sp_nameid_format": "${opt.nameidFormat}".`);
+        }
+
+        /* SP Relay State */
+        opt.relayState = r.variables.saml_sp_relay_state;
+    }
+
+    if (messageType == 'Response' || messageType == 'AuthnRequest') {
+        /* SP ACS URL */
+        opt.spServiceUrl = escapeXML(r.variables.saml_sp_acs_url);
+        if (isUrlOrUrn(opt.spServiceUrl) !== "URL") {
+            throw Error(`Invalid "saml_sp_acs_url": "${opt.spServiceUrl}", must be URL.`);
+        }
+
+        /* IDP SSO URL */
+        opt.idpServiceUrl = escapeXML(r.variables.saml_idp_sso_url);
+        if (isUrlOrUrn(opt.idpServiceUrl) !== "URL") {
+            throw Error(`Invalid "saml_idp_sso_url": "${opt.idpServiceUrl}", must be URL.`);
+        }
+    }
+
+    if (messageType == 'LogoutRequest') {
+        /* SP SLO Request binding method */
+        opt.requestBinding = r.variables.saml_sp_slo_binding;
+        if (opt.requestBinding !== "HTTP-POST" && opt.requestBinding !== "HTTP-Redirect") {
+            throw Error(`Invalid "saml_sp_slo_binding": "${opt.requestBinding}", ` +
+                        `must be "HTTP-POST" or "HTTP-Redirect".`);
+        }
+
+        /* IDP requires SAML LogoutRequest or LogoutResponse to be signed */
+        opt.requestSigned = r.variables.saml_idp_sign_slo;
+        if (opt.requestSigned !== "true" && opt.requestSigned !== "false") {
+            throw Error(`Invalid "saml_idp_sign_slo": "${opt.requestSigned}", ` +
+                        `must be "true" or "false".`);
+        }
+        opt.requestSigned = (opt.requestSigned === 'true');
+
+        /* SP Relay State */
+        opt.relayState = r.variables.saml_logout_landing_page;
+    }
+
+    if (messageType == 'LogoutResponse') {
+        /* SP requires SAML LogoutRequest or LogoutResponse to be signed */
+        opt.wantSignedResponse = r.variables.saml_sp_want_signed_slo.toLowerCase();
+        if (opt.wantSignedResponse !== 'true' && opt.wantSignedResponse !== 'false') {
+            throw Error(`Invalid "saml_sp_want_signed_response": "${opt.wantSignedResponse}", ` +
+                        `must be "true" or "false".`);
+        }
+        opt.wantSignedResponse = (opt.wantSignedResponse === 'true');
+    }
+
+    if (messageType == 'LogoutResponse' || messageType == 'LogoutRequest') {
+        /* IDP SLO URL */
+        opt.idpServiceUrl = escapeXML(r.variables.saml_idp_slo_url);
+        if (isUrlOrUrn(opt.idpServiceUrl) !== "URL") {
+            throw Error(`Invalid "saml_idp_slo_url": "${opt.idpServiceUrl}", must be URL.`);
+        }
+
+        /* SP SLO URL */
+        opt.spServiceUrl = escapeXML(r.variables.saml_sp_slo_url);
+        if (isUrlOrUrn(opt.spServiceUrl) !== "URL") {
+            throw Error(`Invalid "saml_sp_slo_url": "${opt.spServiceUrl}", must be URL.`);
+        }
+    }
+
+    if ( opt.wantSignedResponse ||  opt.wantSignedAssert || opt.verifySlo) {
+        /* IDP Response or Assertion verification certificate */
+        opt.idpPubKey = r.variables.saml_idp_verification_certificate;
+    }
+
+    if (opt.requestSigned || opt.requestSigned) {
+        /* SP Authentication request signing private key */
+        opt.spPrivKey = r.variables.saml_sp_signing_key;
+    }
+
+    if (opt.wantSignedResponse || opt.wantSignedAssert) {
+        try {
+            opt.keyData = fs.readFileSync(opt.idpPubKey);
+        } catch (e) {
+            throw Error("Failed to read IDP verification public key from file " +
+                        `"${opt.idpPubKey}": ${e.message}`);
+        }
+    }
+
+    return opt;
+}
+
+function isUrlOrUrn(str) {
+    var urlRegEx = /^(?:https?:\/\/)?[\w.-]+(?:\.[\w.-]+)+[\w\-._~:/?#[\]@!$&'()*+,;=]*$/i;
+    var urnRegEx = /^urn:[a-z0-9][a-z0-9-]{1,31}:[a-z0-9()+,\-.:=@;$_!*'%/?#]+$/i;
+  
+    if (urlRegEx.test(str)) {
+      return "URL";
+    } else if (urnRegEx.test(str)) {
+      return "URN";
+    } else {
+      return false;
+    }
+}
+
+function isValidNameIdFormat(nameIdFormat) {
+    const allowedFormats = [
+        "urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified",
+        "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress",
+        "urn:oasis:names:tc:SAML:1.1:nameid-format:X509SubjectName",
+        "urn:oasis:names:tc:SAML:1.1:nameid-format:WindowsDomainQualifiedName",
+        "urn:oasis:names:tc:SAML:1.1:nameid-format:kerberos",
+        "urn:oasis:names:tc:SAML:2.0:nameid-format:entity",
+        "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent",
+        "urn:oasis:names:tc:SAML:2.0:nameid-format:transient",
+        "urn:oasis:names:tc:SAML:2.0:nameid-format:encrypted",
+    ];
+    return allowedFormats.includes(nameIdFormat);
+}
+
+async function createAuthnRequest(requestID, idpServiceUrl, spServiceUrl, forceAuthn, issuer, nameidFormat,
+                                  sign, key) {
     /*
      * Identifies a SAML protocol binding to be used when returning the Response message.
      * Only HTTP-POST method is supported for now.
      */
     let protocolBinding = "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST";
 
-    if (nameidFormat === '') {
-        nameidFormat = "urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified";
-    }
-
-    let xml = 
+    let authn = 
         '<samlp:AuthnRequest' +
             ' xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol"' +
             ' xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion"' +
             ' Version="2.0"' +
             ` ID="${requestID}"` +
             ` IssueInstant="${new Date().toISOString()}"` +
-            ` Destination="${ssoUrl}"` +
-            ` AssertionConsumerServiceURL="${acsUrl}"` +
+            ` Destination="${idpServiceUrl}"` +
+            ` AssertionConsumerServiceURL="${spServiceUrl}"` +
             ` ProtocolBinding="${protocolBinding}"` +
-            ` ForceAuthn="${forceAuthn}"` +
         '>' +
             `<saml:Issuer>${issuer}</saml:Issuer>` +
             '<samlp:NameIDPolicy' +
                 ` Format="${nameidFormat}"` +
                 ' AllowCreate="true"/>' +
+            `${attachSignTemplate(requestID)}` +
         '</samlp:AuthnRequest>';
 
-    return xml;
-}
+    const root = (xml.parse(authn)).$root;
+    const rootSignature = root.Signature;
 
-function normalizeXml(xmlData) {
+    if (forceAuthn) {
+        root.setAttribute('ForceAuthn', forceAuthn);
+    }
+
+    if (sign) {
+        let keyData;
+        try {
+            keyData = fs.readFileSync(key);
+        } catch (e) {
+            throw Error(`Failed to read SP private key from file "${key}". ${e.message}`);
+        }
+
+        try {
+            await digestSAML(rootSignature, true);
+            await signatureSAML(rootSignature, keyData, true);
+        } catch (e) {
+            throw Error(`Failed to sign AuthN request. ${e.message}`);
+        }
+    } else {
+        rootSignature.removeChildren();
+    }
+
     let dec = new TextDecoder();
-    let xmlDoc = xml.parse(xmlData);
-    return dec.decode(xml.exclusiveC14n(xmlDoc));
+    return dec.decode(xml.c14n(root));
 }
 
-function postAuthnRequest(xmlData, ssoUrl, relayState) {
-    let samlRequest = xmlData.toString('base64');
-    let form = `<form method="post" action="${ssoUrl}">` +
-    `<input type="hidden" name="SAMLRequest" value="${samlRequest}"/>` +
-    `<input type="hidden" name="RelayState" value="${relayState}"/>` +
+async function createLogoutRequest(requestID, idpServiceUrl, issuer, nameid, sign, key) {
+    let slo = 
+        '<samlp:LogoutRequest' +
+            ' xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol"' +
+            ' xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion"' +
+            ' Version="2.0"' +
+            ` ID="${requestID}"` +
+            ` IssueInstant="${new Date().toISOString()}"` +
+            ` Destination="${idpServiceUrl}"` +
+        '>' +
+            `<saml:Issuer>${issuer}</saml:Issuer>` +
+            `<saml:NameID>${nameid}</saml:NameID>` +
+            `${attachSignTemplate(requestID)}` +
+        '</samlp:LogoutRequest>';
+
+    const root = (xml.parse(slo)).$root;
+    const rootSignature = root.Signature;
+
+    if (sign) {
+        let keyData;
+        try {
+            keyData = fs.readFileSync(key);
+        } catch (e) {
+            throw Error(`Failed to read SP private key from file "${key}". ${e.message}`);
+        }
+
+        try {
+            await digestSAML(rootSignature, true);
+            await signatureSAML(rootSignature, keyData, true);
+        } catch (e) {
+            throw Error(`Failed to sign Logout request: ${e.message}`);
+        }
+    } else {
+        rootSignature.removeChildren();
+    }
+
+    let dec = new TextDecoder();
+    return dec.decode(xml.c14n(root));
+}
+
+async function createLogoutResponse(id, inResponseTo, destination, issuer, statusCode, sign, key) {
+    let slo = 
+        '<samlp:LogoutResponse' +
+            ' xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol"' +
+            ' xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion"' +
+            ' Version="2.0"' +
+            ` ID="${id}"` +
+            ` IssueInstant="${new Date().toISOString()}"` +
+            ` InResponseTo="${inResponseTo}"` +
+            ` Destination="${destination}"` +
+        '>' +
+            `<saml:Issuer>${issuer}</saml:Issuer>` +
+            `${attachSignTemplate(id)}` +
+            '<samlp:Status>' +
+                `<samlp:StatusCode Value="${statusCode}"/>` +
+            '</samlp:Status>' +
+        '</samlp:LogoutResponse>';
+
+    const root = (xml.parse(slo)).$root;
+    const rootSignature = root.Signature;
+
+    if (sign) {
+        let keyData;
+        try {
+            keyData = fs.readFileSync(key);
+        } catch (e) {
+            throw Error(`Failed to read SP private key from file "${key}". ${e.message}`);
+        }
+
+        try {
+            await digestSAML(rootSignature, true);
+            await signatureSAML(rootSignature, keyData, true);
+        } catch (e) {
+            throw Error(`Failed to sign Logout request: ${e.message}`);
+        }
+    } else {
+        rootSignature.removeChildren();
+    }
+
+    let dec = new TextDecoder();
+    return dec.decode(xml.c14n(root));
+}
+
+function postSAMLRequest(xmlData, idpServiceUrl, relayState) {
+    const samlRequest = xmlData.toString('base64');
+
+    if (relayState) {
+        relayState = `<input type="hidden" name="RelayState" value="${relayState}"/>`;
+    }
+
+    const form = 
+    `<form method="post" action="${idpServiceUrl}">` +
+        `<input type="hidden" name="SAMLRequest" value="${samlRequest}"/>` +
+        relayState +
     '</form>';
-    let autoSubmit = '<script>document.getElementsByTagName("form")[0].submit();</script>';
+
+    const autoSubmit = '<script>document.getElementsByTagName("form")[0].submit();</script>';
+
     return(form + autoSubmit);
 }
 
-function redirectAuthnRequest(xmlData, ssoUrl, relayState) {
+function redirectSAMLRequest(xmlData, idpServiceUrl, relayState) {
     let samlRequest = pako.deflateRaw(xmlData);
     samlRequest = Buffer.from(samlRequest).toString('base64');
     samlRequest = encodeURIComponent(samlRequest);
-    let url = ssoUrl + '?SAMLRequest=' + samlRequest;
+    let url = idpServiceUrl + '?SAMLRequest=' + samlRequest;
 
     if (relayState) {
         url += '&RelayState=' + encodeURIComponent(relayState);
@@ -252,138 +671,172 @@ function redirectAuthnRequest(xmlData, ssoUrl, relayState) {
     return(url);
 }
 
-function parsePostPayload (payload) {
-    let response = payload.toString();
-    response = querystring.parse(response);
-    let samlResponse = Buffer.from((response.SAMLResponse), 'base64').toString();
+function extractSamlParams(payload, method) {
+    const params = querystring.parse(payload);
+    let samlResponse = Buffer.from(decodeURIComponent(params.SAMLResponse ||
+                                                      params.SAMLRequest), 'base64');
+    const relayState = params.RelayState ? Buffer.from(params.RelayState, 'base64').toString()
+                                         : undefined;
 
-    let relayState;
-    if (response.RelayState) {
-        relayState = Buffer.from((response.RelayState), 'base64').toString();
+    if (method === "GET") {
+        samlResponse = pako.inflateRaw(samlResponse);
     }
 
-    return [samlResponse, relayState];
+    return {SAMLResponse: samlResponse, RelayState: relayState};
 }
 
-function verifySAMLResponse (r, xmlDoc) {
-    if (!xmlDoc.Response) {
-        throw Error("No Response tag found!");
+function getMessageType(xmlDoc) {
+    const allowedRoots = [
+        "Response",
+        "LogoutResponse",
+        "LogoutRequest",
+    ];
+    const root = xmlDoc.$root;
+    const messageType = root.$name;
+
+    if (!allowedRoots.includes(messageType)) {
+        throw Error(`Unsupported SAML message type: "${messageType}"`);
     }
 
-    const version = xmlDoc.Response.$attr$Version;
-    if (version !== "2.0") {
-        throw Error (`Invalid SAML Version "${version}".`);
-    }
-
-    const acsUrl = r.variables.saml_sp_acs_url;
-    const destination = xmlDoc.Response.$attr$Destination;
-    if (destination !== acsUrl) {
-        throw Error (`The SAML Destination "${destination}" does not match ` +
-                     `SP ACS URL "${acsUrl}".`);
-    }
-
-    /* const ID = xmlDoc.Response.$attr$ID;
-       Need to verify the ID attribute in the SAML response for IDP-initiated SSO. Used for message
-       replay protection and for correlating the response with a previous SAML request.
-    */
-
-    const inResponseTo = xmlDoc.Response.$attr$InResponseTo;
-    if (inResponseTo) {
-        r.variables.saml_request_id = inResponseTo;
-        if (r.variables.saml_have_session != '1') {
-            throw Error (`InResponseTo attribute value "${inResponseTo}" does not match ` +
-                         "expected value.");
-        }
-        r.variables.saml_have_session = '0';
-    } else {
-        throw Error ("IdP-initiated SSO does not supported yet.");
-    }
-
-    return true;
+    return messageType;
 }
 
-function verifyResponseStatus (xmlDoc) {
-    const success = "urn:oasis:names:tc:SAML:2.0:status:Success";
-    const status = xmlDoc.Response.Status.StatusCode.$attr$Value;
+async function verifyBasicRequirements (r, root, opt) {
+    const type = root.$name;
+    
+    /* Check XML namespace for SAML message (Required) */
+    const expectedNs = type === 'Assertion'
+        ? 'urn:oasis:names:tc:SAML:2.0:assertion'
+        : 'urn:oasis:names:tc:SAML:2.0:protocol';
 
-    if (status !== success) {
-
-        let message;
-        if (xmlDoc.Response.Status.StatusMessage.$text) {
-            message = xmlDoc.Response.Status.StatusMessage.$text;
-        }
-
-        throw Error(`status code = "${status}", message = "${message}".`);
+    if (root.$ns !== expectedNs) {
+        throw new Error(`Unsupported XML namespace: "${root.$ns}" for ${type}`);
     }
 
-    return true;
-}
-
-function verifySAMLAssertion (xmlDoc, idpEntityID) {
-    const assertion = xmlDoc.Response.Assertion;
-    if (!assertion) {
-        throw Error("Assertion element is missing in the SAML response.");
+    /* Check SAML message version (Required) */
+    if (root.$attr$Version !== "2.0") {
+        throw Error (`Unsupported SAML Version: "${root.$attr$Version}"`);
     }
 
-    const version = assertion.$attr$Version;
-    if (version !== "2.0") {
-        throw Error (`Version "${version}" is not supported.`);
-    }
-
-    const issuer = assertion.Issuer.$text;
-    if (issuer !== idpEntityID) {
-        throw Error (`Issuer "${issuer}" does not match IdP EntityID "${idpEntityID}".`);
-    }
-
+    /* Check the date and time when the SAML message was issued (Required) */
     const currentTime = new Date();
-    const issueInstant = new Date(assertion.IssueInstant);
+    const issueInstant = new Date(root.$attr$issueInstant);
     if (issueInstant > currentTime) {
-        throw new Error('IssueInstant is in the future, which is invalid.');
+        throw Error(`"IssueInstant" is in the future. Check clock skew of SP and IdP`);
+    }
+
+    /* Check SAML message ID (Required)  */
+    const id = root.$attr$ID;
+    if (!id) {
+        throw Error (`ID not found in "${type}" message`);
+    }
+
+    const inResponseTo = root.$attr$InResponseTo;
+    if (inResponseTo) {
+        /* SP-initiated SSO or SLO */
+        r.variables.saml_request_id = inResponseTo;
+        if (r.variables.saml_request_inuse != '1') {
+            throw Error (`InResponseTo attribute value "${inResponseTo}" ` +
+                         `not found in key-value storage for ${type} message`);
+        }
+        if (type !== "Response") {
+            /* In the case of Response message it will be freed during Assertion processing */
+            r.variables.saml_request_inuse = '0';
+        }
+    }
+
+    /* Check Destination if present (Optional) */
+    const destination = root.$attr$Destination;
+    if (destination && destination !== opt.spServiceUrl) {
+        throw Error (`The SAML Destination "${destination}" does not match ` +
+                     `SP ACS URL "${opt.spServiceUrl}"`);
+    }
+
+    /* Check Issuer if present (Optional) */
+    const issuer = root.Issuer.$text;
+    if (issuer && issuer !== opt.idpEntityId) {
+        throw Error (`Issuer "${root.Issuer.$text}" does not match IdP EntityID ` +
+                     `"${opt.idpEntityId}"`);
+    }
+
+    /* Verify SAML Response signature if required */
+    if ( (opt.wantSignedResponse && type === 'Response') || 
+         (opt.wantSignedAssert && type === 'Assertion') ) {
+        try {
+            const rootSignature = root.Signature;
+            await verifySAMLSignature(rootSignature, opt.keyData);
+        } catch (e) {
+            throw Error (`Error verifying SAML ${type} message signature: ${e.message}`);
+        }
+    }
+
+    /* Protection against SAML replay attacks */
+    r.variables.saml_response_id = id;
+    if (r.variables.saml_response_used == '1') {
+        throw Error (`An attempt to reuse a ${type} ID was detected: ` +
+                     `ID "${id}" has already been redeemed`);
+    }
+
+    return id;
+}
+
+function verifyStatus (xmlDoc) {
+    const root = xmlDoc.$root.Status;
+    const statusCode = root.StatusCode.$attr$Value;
+
+    const success = "urn:oasis:names:tc:SAML:2.0:status:Success";
+    if (statusCode !== success) {
+        let message = "StatusCode: " + statusCode;
+        if (root.statusMessage) {
+            message += ", SatusMessage: " + root.statusMessage.$text;
+        }
+
+        if (root.statusDetail) {
+            message += ", StatusDetail: " + JSON.stringify(root.statusDetail);
+        }
+
+        throw Error(message);
     }
 }
 
-function parseAssertionSubject(xmlDoc, spEntityId) {
+function parseSubject(xmlDoc) {
     let root = xmlDoc.Response.Assertion.Subject;
     if (!root) {
-        throw new Error("Subject element is missing in the SAML Assertion.");
+        throw new Error("Subject element is missing in the SAML Assertion");
     }
 
     /* Extract the NameID and NameID Format */
     if (!root.NameID) {
-        throw new Error("NameID not found in Subject.");
+        throw new Error("NameID not found in Subject");
     }
     const nameID = root.NameID.$text;
-    const nameIdFormat = root.NameID.$attr$Format;
+
+    const nameIdFormat = root.NameID.$attr$Format && root.NameID.$attr$Format;
 
     /* Check SubjectConfirmation */
-    if (!root.SubjectConfirmation) {
-        throw new Error("SubjectConfirmation element is missing in the SAML Subject.");
+    if (root.SubjectConfirmation) {
+        root = root.SubjectConfirmation;
+        const methodBearer = "urn:oasis:names:tc:SAML:2.0:cm:bearer";
+        if (root.$attr$Method === methodBearer) {
+            root = root.SubjectConfirmationData;
+            if (!root) {
+                throw new Error('SubjectConfirmationData element is missing in SAML ' +
+                                'SubjectConfirmation');
+            }
+
+            const now = new Date();
+            let notOnOrAfter = root.NotOnOrAfter ? new Date(root.NotOnOrAfter) : now;
+            if (notOnOrAfter < now) {
+                throw new Error(`The Subject has expired. Current time is ${now} ` +
+                                `and NotOnOrAfter is ${notOnOrAfter}`);
+            }
+        }
     }
 
-    /* Needs to be revised because the core spec is not very clear in this */
-    root = root.SubjectConfirmation;
-    const methodBearer = "urn:oasis:names:tc:SAML:2.0:cm:bearer";
-    if (root.$attr$Method === methodBearer) {
-
-        root = root.SubjectConfirmationData;
-        if (!root) {
-            throw new Error("SubjectConfirmationData element is missing in the SAML SubjectConfirmation.");
-        }
-
-        const now = new Date();
-        let notOnOrAfter = root.NotOnOrAfter ? new Date(root.NotOnOrAfter) : now;
-        if (notOnOrAfter < now) {
-            throw new Error(`The Subject has expired. Current time is ${now} and NotOnOrAfter is ${notOnOrAfter}`);
-        }
-
-        /* Need to add verification for InResponseTo */
-
-    }
-
-    return nameID;
+    return {nameID: nameID, nameIdFormat: nameIdFormat};
 }
 
-function verifySAMLConditions(xmlDoc, spEntityId) {
+function verifyConditions(xmlDoc, spEntityId) {
     const conditions = xmlDoc.Response.Assertion.Conditions;
     if (!conditions) {
         throw new Error("Conditions element is missing in the SAML response");
@@ -410,12 +863,54 @@ function verifySAMLConditions(xmlDoc, spEntityId) {
 
         const spFound = audience.indexOf(spEntityId) !== -1;
         if (!spFound) {
-            throw new Error("The SAML response was not intended for this Service Provider. " + 
+            throw new Error("The SAML Assertion is not intended for this Service Provider. " + 
                             `Expected audience: ${spEntityId}, received: ${audience}`);
         }
     }
 
     return true;
+}
+
+function parseAuthnStatement(xmlDoc, maxAuthenticationAge) {
+    let root = xmlDoc.Response.Assertion.AuthnStatement;
+    if (!root) {
+        return;
+    }
+
+    const authnInstant = root.$attr$AuthnInstant;
+    if (!authnInstant) {
+        throw Error("AuthnInstant attribute not found");
+    }
+
+    /* Placeholder for future maxAuthenticationAge conf option */
+    if (maxAuthenticationAge) {
+        const authnInstantDate = new Date(authnInstant);
+        const now = new Date();
+        if (now.getTime() - authnInstantDate.getTime() > maxAuthenticationAge*1000) {
+            return false;
+        }
+    }
+
+    const sessionIndex = root.$attr$SessionIndex;
+
+    const sessionNotOnOrAfter = root.$attr$sessionNotOnOrAfter;
+    if (sessionNotOnOrAfter) {
+        var sessionNotOnOrAfterDate = new Date(sessionNotOnOrAfter);
+        var now = new Date();
+        if (sessionNotOnOrAfterDate.getTime() < now.getTime()) {
+            throw Error('Session expired');
+        }
+    }
+
+    root = root.AuthnContext;
+
+    if (!root) {
+        throw Error('AuthnContext element not found');
+    }
+    
+    const authnContextClassRef = root.AuthnContextClassRef.$text;
+
+    return {SessionIndex: sessionIndex, AuthnContextClassRef: authnContextClassRef};
 }
 
 function getAttributes(xmlRoot) {
@@ -447,33 +942,17 @@ function getAttributes(xmlRoot) {
  * @param key_data is SubjectPublicKeyInfo in PEM format.
  */
 
-async function verifySAMLSignature(saml, key_data) {
-    const root = saml.$root;
-    const rootSignature = root.Signature;
-
+async function verifySAMLSignature(rootSignature, key_data) {
     if (!rootSignature) {
-        throw Error(`SAML message is unsigned`);
-    }
-
-    const assertion = root.Assertion;
-    const assertionSignature = assertion ? assertion.Signature : null;
-
-    if (assertionSignature) {
-        if (!await verifyDigest(assertionSignature)) {
-            return false;
-        }
-
-        if (!await verifySignature(assertionSignature, key_data)) {
-            return false;
-        }
+        throw Error(`Message is unsigned`);
     }
 
     if (rootSignature) {
-        if (!await verifyDigest(rootSignature)) {
+        if (!await digestSAML(rootSignature)) {
             return false;
         }
 
-        if (!await verifySignature(rootSignature, key_data)) {
+        if (!await signatureSAML(rootSignature, key_data)) {
             return false;
         }
     }
@@ -481,7 +960,7 @@ async function verifySAMLSignature(saml, key_data) {
     return true;
 }
 
-async function verifyDigest(signature) {
+async function digestSAML(signature, produce) {
     const parent = signature.$parent;
     const signedInfo = signature.SignedInfo;
     const reference = signedInfo.Reference;
@@ -531,18 +1010,20 @@ async function verifyDigest(signature) {
     case "http://www.w3.org/2001/04/xmlenc#sha256":
         hash = "SHA-256";
         break;
-    case "http://www.w3.org/2001/04/xmlenc#sha512":
-        hash = "SHA-512";
-        break;
     default:
         throw Error(`unexpected digest Algorithm ${alg}`);
     }
 
-    const expectedDigest = signedInfo.Reference.DigestValue.$text;
-
     const c14n = xml.exclusiveC14n(parent, signature, withComments, prefixList);
     const dgst = await crypto.subtle.digest(hash, c14n);
     const b64dgst = Buffer.from(dgst).toString('base64');
+
+    if (produce) {
+        signedInfo.Reference.DigestValue.$text = b64dgst;
+        return b64dgst;
+    }
+
+    const expectedDigest = signedInfo.Reference.DigestValue.$text;
 
     return expectedDigest === b64dgst;
 }
@@ -560,9 +1041,7 @@ function base64decode(b64) {
     return Buffer.from(joined, 'base64');
 }
 
-async function verifySignature(signature, key_data) {
-    const der = keyPem2Der(key_data, "PUBLIC");
-
+async function signatureSAML(signature, key_data, produce) {
     let method, hash;
     const signedInfo = signature.SignedInfo;
     const alg = signedInfo.SignatureMethod.$attr$Algorithm;
@@ -576,23 +1055,63 @@ async function verifySignature(signature, key_data) {
         method = "RSASSA-PKCS1-v1_5";
         hash = "SHA-256";
         break;
-    case "http://www.w3.org/2001/04/xmldsig-more#rsa-sha512":
-        method = "RSASSA-PKCS1-v1_5";
-        hash = "SHA-512";
-        break;
     default:
         throw Error(`unexpected signature Algorithm ${alg}`);
     }
 
-    const expectedValue = base64decode(signature.SignatureValue.$text);
     const withComments = signedInfo.CanonicalizationMethod
                          .$attr$Algorithm.slice(39) == 'WithComments';
 
     const signedInfoC14n = xml.exclusiveC14n(signedInfo, null, withComments);
 
-    const key = await crypto.subtle.importKey("spki", der, { name: method, hash },
-                                            false, [ "verify" ]);
+    if (produce) {
+        const der = keyPem2Der(key_data, "PRIVATE");
+        const key = await crypto.subtle.importKey("pkcs8", der, { name: method, hash },
+                                                  false, [ "sign" ]);
 
+        let sig =  await crypto.subtle.sign({ name: method }, key, signedInfoC14n);
+
+        signature.SignatureValue.$text = Buffer.from(sig).toString('base64');
+        return signature;
+    }
+
+    const der = keyPem2Der(key_data, "PUBLIC");
+    const key = await crypto.subtle.importKey("spki", der, { name: method, hash },
+                                              false, [ "verify" ]);
+
+    const expectedValue = base64decode(signature.SignatureValue.$text);
     return await crypto.subtle.verify({ name: method }, key, expectedValue,
                                       signedInfoC14n);
+}
+
+function attachSignTemplate(ID) {
+    const signTemplate =
+        '<ds:Signature xmlns:ds="http://www.w3.org/2000/09/xmldsig#">' +
+            '<ds:SignedInfo>' +
+                '<ds:CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#" />' +
+                '<ds:SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256" />' +
+                `<ds:Reference URI="#${ID}">` +
+                    '<ds:Transforms>' +
+                        '<ds:Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature" />' +
+                        '<ds:Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#" />' +
+                    '</ds:Transforms>' +
+                    '<ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256" />' +
+                    '<ds:DigestValue></ds:DigestValue>' +
+                '</ds:Reference>' +
+            '</ds:SignedInfo>' +
+            '<ds:SignatureValue></ds:SignatureValue>' +
+        '</ds:Signature>';
+
+    return signTemplate;
+}
+
+function processLogout(r, relayState) {
+    if (!relayState) {
+        relayState = '/';
+    }
+    r.log("SAML logout for " + r.variables.cookie_auth_token);
+    r.variables.location_root_granted = "-";
+    r.variables.nameid  = "-";
+    r.headersOut["Set-Cookie"] = "auth_token=" + "; " + r.variables.saml_cookie_flags;
+    r.return(302, relayState);
 }
