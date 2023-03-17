@@ -174,7 +174,7 @@ async function processResponse(r) {
         return;
     }
 
-    /* Verify SAML Assertion     r.error("processSLO part done: " + JSON.stringify(root));*/
+    /* Verify if Assertion is encrypted */
     if (xmlDoc[messageType].EncryptedAssertion) {
         samlError(r, 500, "Failed to process Assertion: Assertion is encrypted");
     }
