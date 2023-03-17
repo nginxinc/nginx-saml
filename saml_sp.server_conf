@@ -1,28 +1,48 @@
-# Advanced configuration TEST START
+# Advanced configuration START
 
     set $internal_error_message "NGINX / SAMLSP login failure\n";
     set $saml_request_id "";
+    set $saml_response_id "";
 
     subrequest_output_buffer_size 32k; # To fit a complete SAML response
     gunzip on; # Decompress IdP responses if necessary
 
 # Advanced configuration END
 
-    set $redir_location "/saml/acs";
     location = /saml/acs {
-        # This location is called by the IdP after successful authentication
-        client_max_body_size 10m;
+        # This location is called by the IdP after authentication
+        client_max_body_size 10m; # need to add to documentation - secur param
         client_body_buffer_size 128k;
         status_zone "SAMLSP ACS";
-        js_content samlsp.processIdpResponse;
+        js_content samlsp.processResponse;
+        error_page 500 502 504 @saml_error; 
+    }
+
+    location = /saml/sls {
+        # This location is called by the IdP after Single Logout request or response
+        client_max_body_size 10m; # need to add to documentation - secur param
+        client_body_buffer_size 128k;
+        status_zone "SAMLSP SLS";
+        js_content samlsp.processResponse;
         error_page 500 502 504 @saml_error; 
     }
 
     location @do_samlsp_flow {
-        js_content samlsp.doAuthnRequest;
+        js_content samlsp.sendAuthnRequest;
         set $cookie_auth_token "";
         # 'Internal Server Error', 'Bad Gateway', 'Gateway Timeout'
         error_page 500 502 504 @saml_error;
+    }
+
+    location = /logout {
+        status_zone "SAML SSO logout";
+        js_content samlsp.sendLogoutRequest;
+    }
+
+    location = /_logout {
+        # This location is the default value of $saml_logout_landing_page (in case it wasn't configured)
+        default_type text/plain;
+        return 200 "Logged out\n";
     }
 
     location @saml_error {
