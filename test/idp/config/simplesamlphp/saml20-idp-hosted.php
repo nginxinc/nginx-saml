@@ -26,14 +26,14 @@ $metadata['__DYNAMIC:1__'] = [
     'simplesaml.nameidattribute' => 'email',
     'userid.attribute' => 'email',
     'SingleSignOnServiceBinding' => 'urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST',
-    'SingleLogoutServiceBinding' => 'urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect',
+    'SingleLogoutServiceBinding' => 'urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST',
     'signature.algorithm' => 'http://www.w3.org/2001/04/xmldsig-more#rsa-sha256',
     'assertion.encryption' => FALSE,
     'nameid.encryption' => FALSE,
     'saml20.sign.response' => TRUE,
     'saml20.sign.assertion' => FALSE,
     'sign.logout' => FALSE,
-    'validate.authnrequest' => FALSE,
+    'validate.authnrequest' => TRUE,
     'validate.logout' => FALSE,
 
     'OrganizationName' => [
