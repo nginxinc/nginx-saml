@@ -689,8 +689,7 @@ function parseSubject(xmlDoc) {
         throw new Error("NameID not found in Subject");
     }
     const nameID = root.NameID.$text;
-
-    const nameIdFormat = root.NameID.$attr$Format && root.NameID.$attr$Format;
+    const nameIdFormat = root.NameID.$attr$Format;
 
     /* Check SubjectConfirmation */
     if (root.SubjectConfirmation) {
