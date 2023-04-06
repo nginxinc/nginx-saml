@@ -1,60 +1,75 @@
-# Advanced configuration START
+# This file contains an extended NGINX SAML SSO configuration,
+# providing advanced options and settings.
+# In general, it is not intended for modifications, as the default values
+# are optimized for most use cases.
 
-    set $internal_error_message "NGINX / SAMLSP login failure\n";
-    set $saml_request_id "";
-    set $saml_response_id "";
+set $saml_request_id "";
+set $saml_response_id "";
 
-    subrequest_output_buffer_size 32k; # To fit a complete SAML response
-    gunzip on; # Decompress IdP responses if necessary
+set $internal_error_message "SAML Authentication failed. If problem persists, contact your system administrator. ";
 
-# Advanced configuration END
+# This variable is set by the JavaScript code and contains the error details.
+js_var $internal_error_details;
 
-    location = /saml/acs {
-        # This location is called by the IdP after authentication
-        client_max_body_size 10m; # need to add to documentation - secur param
-        client_body_buffer_size 128k;
-        status_zone "SAMLSP ACS";
-        js_content samlsp.processResponse;
-        error_page 500 502 504 @saml_error; 
-    }
+# Sets the maximum allowed size of the client request body.
+# Specifies the maximum size of an incoming SAML claim via the HTTP-POST.
+client_max_body_size 64k;
 
-    location = /saml/sls {
-        # This location is called by the IdP after Single Logout request or response
-        client_max_body_size 10m; # need to add to documentation - secur param
-        client_body_buffer_size 128k;
-        status_zone "SAMLSP SLS";
-        js_content samlsp.processResponse;
-        error_page 500 502 504 @saml_error; 
-    }
+# Sets buffer size for reading client request body.
+# To fit a SAML claim into one buffer.
+client_body_buffer_size 64k;
 
-    location @do_samlsp_flow {
-        js_content samlsp.sendAuthnRequest;
-        set $cookie_auth_token "";
-        # 'Internal Server Error', 'Bad Gateway', 'Gateway Timeout'
-        error_page 500 502 504 @saml_error;
-    }
+# Decompress IdP responses if necessary.
+gunzip on;
 
-    location = /logout {
-        status_zone "SAML SSO logout";
-        js_content samlsp.sendLogoutRequest;
-    }
+location = /saml/acs {
+    # SAML Assertion Consumer Service (or ACS) location.
+    # Receiving and processing SAML <samlp:Response> messages from IdP.
+    js_content samlsp.handleSingleSignOn;
+    status_zone "SAMLSSO ACS";
+    error_page 500 @saml_error; 
+}
 
-    location = /_logout {
-        # This location is the default value of $saml_logout_landing_page (in case it wasn't configured)
-        default_type text/plain;
-        return 200 "Logged out\n";
-    }
+location = /saml/sls {
+    # SAML Single Logout Service (or SLS) location.
+    # Receiving and processing SAML <samlp:LogoutResponse>
+    # or <samlp:LogoutRequest> messages from IdP.
+    js_content samlsp.handleSingleLogout;
+    status_zone "SAMLSSO SLS";
+    error_page 500 @saml_error; 
+}
 
-    location @saml_error {
-        # This location is called when no access is granted for protected root location
-        status_zone "SAMLSP error";
-        default_type text/plain;
-        return 500 $internal_error_message;
-    }
+location @do_samlsp_flow {
+    # Named location that initiates SAML Authentication by sending
+    # SAML <samlp:AuthnRequest> to the IdP if the user session is not found.
+    js_content samlsp.initiateSingleSignOn;
+    set $cookie_auth_token "";
+}
 
-    location /api/ {
-        api write=on;
-        allow 127.0.0.1; # Only the NGINX host may call the NGINX Plus API
-        deny all;
-        access_log off;
-    }
+location = /logout {
+    # Requests to this location initiate the logout process by sending
+    # SAML <samlp:LogoutRequest> to the IdP.
+    js_content samlsp.initiateSingleLogout;
+    status_zone "SAMLSSO logout";
+    error_page 500 @saml_error;
+}
+
+location = /_logout {
+    # This location is the default value of $saml_logout_landing_page.
+    default_type text/plain;
+    return 200 "Logged out\n";
+}
+
+location @saml_error {
+    # This location is called when any SAML SSO error occurs
+    status_zone "SAMLSP error";
+    default_type text/plain;
+    return 500 "$internal_error_message $internal_error_details";
+}
+
+location /api/ {
+    api write=on;
+    allow 127.0.0.1; # Only the NGINX host may call the NGINX Plus API
+    deny all;
+    access_log off;
+}
