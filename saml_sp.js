@@ -15,11 +15,11 @@ export default {
 const xml = require("xml");
 const zlib = require("zlib");
 const querystring = require("querystring");
-const fs = require('fs');
+const fs = require("fs");
 
 const initiateSingleSignOn = produceSAMLMessage.bind(null, "AuthnRequest");
 const initiateSingleLogout = produceSAMLMessage.bind(null, "LogoutRequest");
-const handleSingleSignOn = handleSAMLMessage.bind(null, "Response");
+const handleSingleSignOn = handleSAMLMessage.bind(null, ["Response"]);
 const handleSingleLogout = handleSAMLMessage.bind(null, ["LogoutRequest", "LogoutResponse"]);
 const handleAllMessages = handleSAMLMessage.bind(null, ["Response", "LogoutRequest", "LogoutResponse"]);
 
