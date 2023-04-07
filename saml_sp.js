@@ -1166,7 +1166,7 @@ function parseConfigurationOptions(r, messageType) {
         opt.requestBinding = validateHttpPostOrRedirect('saml_sp_request_binding');
         opt.isSigned = validateTrueOrFalse('saml_sp_sign_authn');
         opt.forceAuthn = validateTrueOrFalse('saml_sp_force_authn');
-        opt.nameIdFormat = validateNameIdFormat('saml_sp_nameid_format');
+        opt.nameidFormat = validateNameIdFormat('saml_sp_nameid_format');
     }
 
     if (messageType === 'LogoutResponse' || messageType === 'LogoutRequest') {
