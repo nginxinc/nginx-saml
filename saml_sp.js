@@ -45,7 +45,7 @@ async function handleSAMLMessage(messageType, r) {
 
         /* Process the message header and verify the issuer */
         id = processSAMLMessageHeader(r, opt, root);
-        checkIssuer(root.Issuer, opt.idpEntityId);
+        checkIssuer(root.Issuer, opt.idpEntityID);
 
         /* Verify the SAML signature if required */
         opt.wantSignedResponse && await verifySAMLSignature(root, opt.verifyKeys);
@@ -66,7 +66,7 @@ async function handleSAMLMessage(messageType, r) {
 
                 /* Process the Assertion header and verify the issuer */
                 opt.assertionId = processSAMLMessageHeader(r, opt, root.Assertion);
-                checkIssuer(root.Assertion.Issuer, opt.idpEntityId);
+                checkIssuer(root.Assertion.Issuer, opt.idpEntityID);
 
                 /* Verify the SAML Assertion signature if required */
                 opt.wantSignedAssertion && await verifySAMLSignature(root.Assertion, opt.verifyKeys);
@@ -78,7 +78,7 @@ async function handleSAMLMessage(messageType, r) {
                 checkSubjectConfirmation(root.Assertion.Subject.SubjectConfirmation);
 
                 /* Parse the Asserttion Conditions and Authentication Statement */
-                checkConditions(root.Assertion.Conditions, opt.spEntityId);
+                checkConditions(root.Assertion.Conditions, opt.spEntityID);
                 const authnStatement = parseAuthnStatement(root.Assertion.AuthnStatement);
 
                 /* Set session cookie and save SAML variables and attributes */
@@ -87,7 +87,7 @@ async function handleSAMLMessage(messageType, r) {
                 saveSAMLAttributes(r, root.Assertion.AttributeStatement);
 
                 /* Redirect the user after successful login */
-                postLoginRedirect(r, params.RelayState || opt.RelayState);
+                postLoginRedirect(r, params.RelayState || opt.relayState);
                 r.variables.location_root_granted = '1';
                 r.log("SAML SP success, creating session " + sessionCookie);
                 return;
@@ -99,7 +99,7 @@ async function handleSAMLMessage(messageType, r) {
                 /* Define necessary parameters needed to create a SAML LogoutResponse */
                 opt.NameID = nameID[0];
                 opt.InResponseTo = id;
-                opt.RelayState = params.RelayState;
+                opt.relayState = params.RelayState;
 
                 /* Issue a SAML LogoutResponse */
                 await produceSAMLMessage('LogoutResponse', r, opt);
@@ -189,9 +189,9 @@ function processSAMLMessageHeader(r, opt, root) {
 
     /* Check Destination if present (Optional) */
     const destination = root.$attr$Destination;
-    if (destination && destination !== opt.spServiceUrl) {
+    if (destination && destination !== opt.spServiceURL) {
         throw Error (`The SAML Destination "${destination}" does not match ` +
-                     `SP ACS URL "${opt.spServiceUrl}"`);
+                     `SP ACS URL "${opt.spServiceURL}"`);
     }
 
     return id;
@@ -624,7 +624,7 @@ async function produceSAMLMessage(messageType, r, opt) {
         /* Determine whether the HTTP response should be sent via POST or GET and dispatch */
         const isPost = opt.requestBinding === 'HTTP-POST';
         const postParam = messageType === 'LogoutResponse' ? 'SAMLResponse' : 'SAMLRequest';
-        dispatchResponse(r, xmlDoc, opt.idpServiceUrl, opt.RelayState, postParam, isPost);
+        dispatchResponse(r, xmlDoc, opt.idpServiceURL, opt.relayState, postParam, isPost);
 
         /* Set SAML request ID and redeemed flag */
         r.variables.saml_request_id = id;
@@ -669,10 +669,10 @@ function getLogoutStatusCode(sessionVar, nameID) {
 async function createSAMLMessage(opt, id, messageType) {
     const handlers = {
         AuthnRequest: () => ({
-            assertionConsumerServiceURL: ` AssertionConsumerServiceURL="${opt.spServiceUrl}"`,
+            assertionConsumerServiceURL: ` AssertionConsumerServiceURL="${opt.spServiceURL}"`,
             protocolBinding: ' ProtocolBinding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"',
             forceAuthn: opt.forceAuthn ? ' ForceAuthn="true"' : null,
-            nameIDPolicy: ` <samlp:NameIDPolicy Format="${opt.nameidFormat}" AllowCreate="true"/>`,
+            nameIDPolicy: ` <samlp:NameIDPolicy Format="${opt.nameIDFormat}" AllowCreate="true"/>`,
         }),
         LogoutRequest: () => ({
             nameID: ` <saml:NameID>${opt.NameID}</saml:NameID>`,
@@ -699,13 +699,13 @@ async function createSAMLMessage(opt, id, messageType) {
             ' Version="2.0"' +
             ` ID="${id}"` +
             ` IssueInstant="${new Date().toISOString()}"` +
-            ` Destination="${opt.idpServiceUrl}"` +
+            ` Destination="${opt.idpServiceURL}"` +
             inResponseTo +
             assertionConsumerServiceURL +
             protocolBinding +
             forceAuthn +
         '>' +
-            `<saml:Issuer>${opt.spEntityId}</saml:Issuer>` +
+            `<saml:Issuer>${opt.spEntityID}</saml:Issuer>` +
             `${opt.isSigned ? samlSignatureTemplate(id) : ''}` +
             nameID +
             nameIDPolicy +
@@ -1147,13 +1147,13 @@ function parseConfigurationOptions(r, messageType) {
     let opt = {};
     var prefix = `Failed to parse configuration options for ${messageType}:`;
 
-    opt.spEntityId = validateUrlOrUrn('saml_sp_entity_id');
-    opt.idpEntityId = validateUrlOrUrn('saml_idp_entity_id');
+    opt.spEntityID = validateUrlOrUrn('saml_sp_entity_id');
+    opt.idpEntityID = validateUrlOrUrn('saml_idp_entity_id');
 
     if (messageType === 'Response' || messageType === 'AuthnRequest') {
-        opt.spServiceUrl = validateUrlOrUrn('saml_sp_acs_url');
-        opt.idpServiceUrl = validateUrlOrUrn('saml_idp_sso_url');
-        opt.RelayState = r.variables.saml_sp_relay_state;
+        opt.spServiceURL = validateUrlOrUrn('saml_sp_acs_url');
+        opt.idpServiceURL = validateUrlOrUrn('saml_idp_sso_url');
+        opt.relayState = r.variables.saml_sp_relay_state;
     }
 
     if (messageType === 'Response') {
@@ -1166,16 +1166,16 @@ function parseConfigurationOptions(r, messageType) {
         opt.requestBinding = validateHttpPostOrRedirect('saml_sp_request_binding');
         opt.isSigned = validateTrueOrFalse('saml_sp_sign_authn');
         opt.forceAuthn = validateTrueOrFalse('saml_sp_force_authn');
-        opt.nameidFormat = validateNameIdFormat('saml_sp_nameid_format');
+        opt.nameIDFormat = validateNameIdFormat('saml_sp_nameid_format');
     }
 
     if (messageType === 'LogoutResponse' || messageType === 'LogoutRequest') {
-        opt.spServiceUrl = validateUrlOrUrn('saml_sp_slo_url');
-        opt.idpServiceUrl = validateUrlOrUrn('saml_idp_slo_url');
+        opt.spServiceURL = validateUrlOrUrn('saml_sp_slo_url');
+        opt.idpServiceURL = validateUrlOrUrn('saml_idp_slo_url');
         opt.requestBinding = validateHttpPostOrRedirect('saml_sp_slo_binding');
         opt.isSigned = validateTrueOrFalse('saml_sp_sign_slo');
         opt.wantSignedResponse = validateTrueOrFalse('saml_sp_want_signed_slo');
-        opt.RelayState = r.variables.saml_logout_landing_page;
+        opt.relayState = r.variables.saml_logout_landing_page;
     }
 
     if (opt.wantSignedResponse || opt.wantSignedAssertion) {
