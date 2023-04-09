@@ -97,8 +97,8 @@ async function handleSAMLMessage(messageType, r) {
                 nameID = await extractNameID(node, opt.decryptKey);
 
                 /* Define necessary parameters needed to create a SAML LogoutResponse */
-                opt.NameID = nameID[0];
-                opt.InResponseTo = id;
+                opt.nameID = nameID[0];
+                opt.inResponseTo = id;
                 opt.relayState = params.RelayState;
 
                 /* Issue a SAML LogoutResponse */
@@ -605,21 +605,31 @@ async function produceSAMLMessage(messageType, r, opt) {
         /* Handle messageType actions */
         switch (messageType) {
             case "AuthnRequest":
+                /* Save the original request uri to the "auth_redir" cookie */
                 setAuthRedirCookie(r);
                 break;
             case "LogoutRequest":
-                checkSessionExists(r.variables.nameid);
+                /**
+                 * Redirect user to the logout landing page if the session has already expired
+                 * or not found.
+                 */
+                if (!opt.nameID) {
+                    clearSession(r)
+                    postLogoutRedirect(r, r.variables.saml_logout_landing_page);
+                    return;
+                }
                 break;
             case "LogoutResponse":
-                opt.StatusCode = getLogoutStatusCode(r.variables.nameid, opt.NameID)
+                /* Obtain the status code for the LogoutResponse message */
+                opt.statusCode = getLogoutStatusCode(r.variables.nameid, opt.nameID)
                 break;
         }
 
-        // Create the SAML message based on messageType
+        /* Create the SAML message based on messageType */
         const xmlDoc = await createSAMLMessage(opt, id, messageType);
 
-        // Clear session if LogoutResponse StatusCode is Success
-        (opt.StatusCode === 'urn:oasis:names:tc:SAML:2.0:status:Success') && clearSession(r);
+        /* Clear session if LogoutResponse StatusCode is Success */
+        (opt.statusCode === 'urn:oasis:names:tc:SAML:2.0:status:Success') && clearSession(r);
 
         /* Determine whether the HTTP response should be sent via POST or GET and dispatch */
         const isPost = opt.requestBinding === 'HTTP-POST';
@@ -653,17 +663,16 @@ function setAuthRedirCookie(r) {
     ];
 }
 
-function checkSessionExists(nameID) {
-    if (!nameID) {
-        throw Error("No SAML SSO session found");
+function getLogoutStatusCode(sessionNameID, requestNameID) {
+    /* If no session exists, return Logout Success */
+    if (!sessionNameID || sessionNameID === '-') {
+        return 'urn:oasis:names:tc:SAML:2.0:status:Success';
     }
-}
 
-function getLogoutStatusCode(sessionVar, nameID) {
-    const statusCode = nameID !== sessionVar
-        ? 'urn:oasis:names:tc:SAML:2.0:status:Responder'
-        : 'urn:oasis:names:tc:SAML:2.0:status:Success';
-    return statusCode;
+    /* If session exists, return Logout Success if NameID matches */
+    return requestNameID === sessionNameID
+        ? 'urn:oasis:names:tc:SAML:2.0:status:Success'
+        : 'urn:oasis:names:tc:SAML:2.0:status:Requester';
 }
 
 async function createSAMLMessage(opt, id, messageType) {
@@ -675,11 +684,11 @@ async function createSAMLMessage(opt, id, messageType) {
             nameIDPolicy: ` <samlp:NameIDPolicy Format="${opt.nameIDFormat}" AllowCreate="true"/>`,
         }),
         LogoutRequest: () => ({
-            nameID: ` <saml:NameID>${opt.NameID}</saml:NameID>`,
+            nameID: ` <saml:NameID>${opt.nameID}</saml:NameID>`,
         }),
         LogoutResponse: () => ({
-            inResponseTo: ` InResponseTo="${opt.InResponseTo}"`,
-            status: ` <samlp:Status><samlp:StatusCode Value="${opt.StatusCode}"/></samlp:Status>`,
+            inResponseTo: ` InResponseTo="${opt.inResponseTo}"`,
+            status: ` <samlp:Status><samlp:StatusCode Value="${opt.statusCode}"/></samlp:Status>`,
         }),
     };
 
@@ -1176,6 +1185,7 @@ function parseConfigurationOptions(r, messageType) {
         opt.isSigned = validateTrueOrFalse('saml_sp_sign_slo');
         opt.wantSignedResponse = validateTrueOrFalse('saml_sp_want_signed_slo');
         opt.relayState = r.variables.saml_logout_landing_page;
+        opt.nameID = r.variables.nameid;
     }
 
     if (opt.wantSignedResponse || opt.wantSignedAssertion) {
