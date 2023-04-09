@@ -101,6 +101,9 @@ async function handleSAMLMessage(messageType, r) {
                 opt.inResponseTo = id;
                 opt.relayState = params.RelayState;
 
+                /* Rewrite the LogoutResponse URL if configured */
+                opt.idpServiceURL = opt.logoutResponseURL || opt.idpServiceURL;
+
                 /* Issue a SAML LogoutResponse */
                 await produceSAMLMessage('LogoutResponse', r, opt);
                 return;
@@ -1181,6 +1184,7 @@ function parseConfigurationOptions(r, messageType) {
     if (messageType === 'LogoutResponse' || messageType === 'LogoutRequest') {
         opt.spServiceURL = validateUrlOrUrn('saml_sp_slo_url');
         opt.idpServiceURL = validateUrlOrUrn('saml_idp_slo_url');
+        opt.logoutResponseURL = validateUrlOrUrn('saml_idp_slo_response_url', true);
         opt.requestBinding = validateHttpPostOrRedirect('saml_sp_slo_binding');
         opt.isSigned = validateTrueOrFalse('saml_sp_sign_slo');
         opt.wantSignedResponse = validateTrueOrFalse('saml_sp_want_signed_slo');
@@ -1200,13 +1204,18 @@ function parseConfigurationOptions(r, messageType) {
         opt.decryptKey = readKeysFromFile(r.variables.saml_sp_decryption_key)[0];
     }
 
-    function validateUrlOrUrn(name) {
-        const value = escapeXML(r.variables[name]);
+    function validateUrlOrUrn(name, allowEmpty) {
+        let value = r.variables[name];
+
+        if (allowEmpty && (value === '' || value === undefined)) {
+            return value;
+        }
+
         if (!isUrlOrUrn(value)) {
             throw Error(`${prefix} Invalid "${name}": "${value}", must be URI.`);
         }
 
-        return value;
+        return escapeXML(value);
     }
 
     function validateTrueOrFalse(name) {
