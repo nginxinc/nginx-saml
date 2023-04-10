@@ -1280,17 +1280,8 @@ function getEscapeXML() {
 };
 
 function isUrlOrUrn(str) {
-    const urlRegEx = new RegExp(
-        "^((?:(?:https?):)\/\/)?(" +
-        "(?:(?:[^:@]+(?::[^:@]+)?|[^:@]+@[^:@]+)(?::\d+)?)|(?:\\[[a-fA-F0-9:]+\\]))" +
-        "(\/(?:[^?#]*))?" +
-        "(\\?(?:[^#]*))?" +
-        "(#(?:.*))?$"
-    );
-    const urnRegEx = new RegExp(
-        "^urn:[a-z0-9][a-z0-9-.]{1,31}:[a-z0-9()+,\-.:=@;$_!*'%/?#]+$",
-        'i'
-    );
+    const urlRegEx = /^((?:(?:https?):)\/\/)?((?:(?:[^:@]+(?::[^:@]+)?|[^:@]+@[^:@]+)(?::\d+)?)|(?:\[[a-fA-F0-9:]+]))(\/(?:[^?#]*))?(\\?(?:[^#]*))?(#(?:.*))?$/;
+    const urnRegEx = /^urn:[a-z0-9][a-z0-9-.]{1,31}:[a-z0-9()+,\-.:=@;$_!*'%/?#]+$/i;
   
     if (urlRegEx.test(str)) {
         return "URL";
@@ -1310,10 +1301,7 @@ function isUrlOrUrn(str) {
 function readKeysFromFile(keyFile) {
     try {
         const pem = fs.readFileSync(keyFile, 'utf8');
-        const regex = new RegExp(
-            "-----BEGIN (PUBLIC|PRIVATE) KEY-----[\\s\\S]*?-----END (PUBLIC|PRIVATE) KEY-----",
-            "g"
-        );
+        const regex = /-----BEGIN (PUBLIC|PRIVATE) KEY-----[\s\S]*?-----END (PUBLIC|PRIVATE) KEY-----/g;
         const matches = pem.match(regex);
         const pemList = [];
 
