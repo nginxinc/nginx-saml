@@ -411,18 +411,18 @@ function parseAuthnStatement(root, maxAuthenticationAge) {
 }
 
 async function saveSAMLVariables(r, nameID, authnStatement) {
-    r.variables.nameid = nameID[0];
-    r.variables.nameidformat = nameID[1];
+    r.variables.saml_name_id = nameID[0];
+    r.variables.saml_name_id_format = nameID[1];
 
     if (authnStatement[0]) {
         try {
-            r.variables.sessionindex = authnStatement[0];
+            r.variables.saml_session_index = authnStatement[0];
         } catch(e) {}
     }
 
     if (authnStatement[1]) {
         try {
-            r.variables.authncontextclassref = authnStatement[1];
+            r.variables.saml_authn_context_class_ref = authnStatement[1];
         } catch(e) {}
     }
 }
@@ -452,7 +452,7 @@ async function saveSAMLAttributes(r, root) {
 
             /* Save attributeName and value to the key-value store */
             try {
-                r.variables[attributeName] = attributeValue;
+                r.variables['saml_attrib_' + attributeName] = attributeValue;
             } catch(e) {}
         }
     }
@@ -570,9 +570,9 @@ function postLogoutRedirect(r, relayState) {
 }
 
 function clearSession(r) {
-    r.log("SAML logout for " + r.variables.nameid);
+    r.log("SAML logout for " + r.variables.saml_name_id);
     r.variables.location_root_granted = "-";
-    r.variables.nameid = "-";
+    r.variables.saml_name_id = "-";
 
     const cookieFlags = r.variables.saml_cookie_flags;
     const expired = 'Expires=Thu, 01 Jan 1970 00:00:00 GMT; ';
@@ -624,7 +624,7 @@ async function produceSAMLMessage(messageType, r, opt) {
                 break;
             case "LogoutResponse":
                 /* Obtain the status code for the LogoutResponse message */
-                opt.statusCode = getLogoutStatusCode(r.variables.nameid, opt.nameID)
+                opt.statusCode = getLogoutStatusCode(r.variables.saml_name_id, opt.nameID)
                 break;
         }
 
@@ -1192,7 +1192,7 @@ function parseConfigurationOptions(r, messageType) {
             opt.wantSignedResponse = validateTrueOrFalse('saml_sp_want_signed_slo');
         }
         opt.relayState = r.variables.saml_logout_landing_page;
-        opt.nameID = r.variables.nameid;
+        opt.nameID = r.variables.saml_name_id;
     }
 
     if (opt.wantSignedResponse || opt.wantSignedAssertion) {
