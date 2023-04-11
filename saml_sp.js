@@ -613,12 +613,12 @@ async function produceSAMLMessage(messageType, r, opt) {
                 break;
             case "LogoutRequest":
                 /**
-                 * Redirect user to the logout landing page if the session has already expired
-                 * or not found.
+                 * Perform simple session termination if SAML SLO is disabled or if the
+                 * session has already expired or not found.
                  */
-                if (!opt.nameID) {
+                if (!opt.nameID || opt.isSLODisabled) {
                     clearSession(r)
-                    postLogoutRedirect(r, r.variables.saml_logout_landing_page);
+                    postLogoutRedirect(r, opt.relayState);
                     return;
                 }
                 break;
@@ -1182,12 +1182,15 @@ function parseConfigurationOptions(r, messageType) {
     }
 
     if (messageType === 'LogoutResponse' || messageType === 'LogoutRequest') {
-        opt.spServiceURL = validateUrlOrUrn('saml_sp_slo_url');
-        opt.idpServiceURL = validateUrlOrUrn('saml_idp_slo_url');
-        opt.logoutResponseURL = validateUrlOrUrn('saml_idp_slo_response_url', true);
-        opt.requestBinding = validateHttpPostOrRedirect('saml_sp_slo_binding');
-        opt.isSigned = validateTrueOrFalse('saml_sp_sign_slo');
-        opt.wantSignedResponse = validateTrueOrFalse('saml_sp_want_signed_slo');
+        opt.idpServiceURL = validateUrlOrUrn('saml_idp_slo_url', true);
+        opt.isSLODisabled = !opt.idpServiceURL ? true : false;
+        if (!opt.isSLODisabled) {
+            opt.spServiceURL = validateUrlOrUrn('saml_sp_slo_url');
+            opt.logoutResponseURL = validateUrlOrUrn('saml_idp_slo_response_url', true);
+            opt.requestBinding = validateHttpPostOrRedirect('saml_sp_slo_binding');
+            opt.isSigned = validateTrueOrFalse('saml_sp_sign_slo');
+            opt.wantSignedResponse = validateTrueOrFalse('saml_sp_want_signed_slo');
+        }
         opt.relayState = r.variables.saml_logout_landing_page;
         opt.nameID = r.variables.nameid;
     }
