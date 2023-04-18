@@ -395,11 +395,11 @@ Manual configuration involves reviewing the following files so that they match y
   - Configure the preferred listen port and [enable SSL/TLS configuration](https://docs.nginx.com/nginx/admin-guide/security-controls/terminating-ssl-http/)
   - Modify the severity level of the `error_log` directive to suit the deployment environment
 
-- **openid_connect.server_conf** - this is the NGINX configuration for handling IdP Responses 
+- **saml_sp.server_conf** - this is the NGINX configuration for handling IdP Responses 
   - No changes are usually required here
   - Modify the `client_body_buffer_size` directive to match the maximum size of IdP response (post body)
 
-- **openid_connect.js** - this is the JavaScript code for performing the SAML Authentication
+- **saml_sp.js** - this is the JavaScript code for performing the SAML Authentication
   - No changes are required
 
 ## Configuring the Key-Value Store
