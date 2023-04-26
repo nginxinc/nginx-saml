@@ -283,7 +283,7 @@ async function extractNameID(root, keyData) {
  * @param {Object} root - A SAML SubjectConfirmation XMLDoc object returned by xml.parse().
  * @throws {Error} - If the SubjectConfirmationData is missing or the subject has expired.
  */
-async function checkSubjectConfirmation(root) {
+function checkSubjectConfirmation(root) {
     if (!root) {
         return;
     }
@@ -410,7 +410,7 @@ function parseAuthnStatement(root, maxAuthenticationAge) {
     return [sessionIndex, authnContextClassRef];
 }
 
-async function saveSAMLVariables(r, nameID, authnStatement) {
+function saveSAMLVariables(r, nameID, authnStatement) {
     r.variables.saml_name_id = nameID[0];
     r.variables.saml_name_id_format = nameID[1];
 
@@ -444,7 +444,7 @@ function getAttributes(root) {
     }, {});
 }
 
-async function saveSAMLAttributes(r, root) {
+function saveSAMLAttributes(r, root) {
     let attrs = getAttributes(root.$tags$Attribute);
     for (var attributeName in attrs) {
         if (attrs.hasOwnProperty(attributeName)) {
