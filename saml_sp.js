@@ -684,14 +684,14 @@ async function createSAMLMessage(opt, id, messageType) {
             assertionConsumerServiceURL: ` AssertionConsumerServiceURL="${opt.spServiceURL}"`,
             protocolBinding: ' ProtocolBinding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"',
             forceAuthn: opt.forceAuthn ? ' ForceAuthn="true"' : null,
-            nameIDPolicy: ` <samlp:NameIDPolicy Format="${opt.nameIDFormat}" AllowCreate="true"/>`,
+            nameIDPolicy: `<samlp:NameIDPolicy Format="${opt.nameIDFormat}" AllowCreate="true"/>`,
         }),
         LogoutRequest: () => ({
-            nameID: ` <saml:NameID>${opt.nameID}</saml:NameID>`,
+            nameID: `<saml:NameID>${opt.nameID}</saml:NameID>`,
         }),
         LogoutResponse: () => ({
             inResponseTo: ` InResponseTo="${opt.inResponseTo}"`,
-            status: ` <samlp:Status><samlp:StatusCode Value="${opt.statusCode}"/></samlp:Status>`,
+            status: `<samlp:Status><samlp:StatusCode Value="${opt.statusCode}"/></samlp:Status>`,
         }),
     };
 
