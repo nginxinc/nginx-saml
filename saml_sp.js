@@ -88,7 +88,7 @@ async function handleSAMLMessage(messageType, r) {
 
                 /* Redirect the user after successful login */
                 postLoginRedirect(r, params.RelayState || opt.relayState);
-                r.variables.location_root_granted = '1';
+                r.variables.saml_access_granted = '1';
                 r.log("SAML SP success, creating session " + sessionCookie);
                 return;
             case 'LogoutRequest':
@@ -571,7 +571,7 @@ function postLogoutRedirect(r, relayState) {
 
 function clearSession(r) {
     r.log("SAML logout for " + r.variables.saml_name_id);
-    r.variables.location_root_granted = "-";
+    r.variables.saml_access_granted = "-";
     r.variables.saml_name_id = "-";
 
     const cookieFlags = r.variables.saml_cookie_flags;
