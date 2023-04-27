@@ -409,7 +409,7 @@ This is part of the advanced configuration in **saml_sp_configuration.conf**.
 The [key-value store](http://nginx.org/en/docs/http/ngx_http_keyval_module.html) is used to maintain persistent storage for SAML sessons and extracted SAML attributes. The default configuration should be reviewed so that it suits the environment. If you need access to any extracted SAML attribute as a NGINX variable, you need to create a separate `keyval_zone`, as well as a `keyval` record for each such attribute, for example, if the SAML attribute name is `email` you need to add the following 2 entries:
 
 ```nginx
-keyval_zone    zone=saml_attrib_email:1M                state=saml_attrib_email.json    timeout=1h;
+keyval_zone    zone=saml_attrib_email:1M                state=conf.d/saml_attrib_email.json   timeout=1h;
 keyval         $cookie_auth_token $saml_attrib_email    zone=saml_attrib_email;
 ```
 
@@ -422,39 +422,39 @@ The following keyval zones are added by default:
 # to prevent replay attacks. (REQUIRED)
 # Timeout determines how long the SP waits for a response from the IDP,
 # i.e. how long the user authentication process can take.
-keyval_zone zone=saml_request_id:1M                 state=saml_request_id.json                  timeout=5m;
+keyval_zone zone=saml_request_id:1M                 state=conf.d/saml_request_id.json                  timeout=5m;
 
 # Zone for storing SAML Response message identifiers (ID) to prevent replay attacks. (REQUIRED)
 # Timeout determines how long the SP keeps IDs to prevent reuse.
-keyval_zone zone=saml_response_id:1M                state=saml_response_id.json                 timeout=1h;
+keyval_zone zone=saml_response_id:1M                state=conf.d/saml_response_id.json                 timeout=1h;
 
 # Zone for storing SAML session access information. (REQUIRED)
 # Timeout determines how long the SP keeps session access decision (the session lifetime).
-keyval_zone zone=saml_session_access:1M             state=saml_session_access.json              timeout=1h;
+keyval_zone zone=saml_session_access:1M             state=conf.d/saml_session_access.json              timeout=1h;
 
 # Zone for storing SAML NameID values. (REQUIRED)
 # Timeout determines how long the SP keeps NameID values. Must be equal to session lifetime.
-keyval_zone zone=saml_name_id:1M                    state=saml_name_id.json                     timeout=1h;
+keyval_zone zone=saml_name_id:1M                    state=conf.d/saml_name_id.json                     timeout=1h;
 
 # Zone for storing SAML NameID format values. (REQUIRED)
 # Timeout determines how long the SP keeps NameID format values. Must be equal to session lifetime.
-keyval_zone zone=saml_name_id_format:1M             state=saml_name_id_format.json              timeout=1h;
+keyval_zone zone=saml_name_id_format:1M             state=conf.d/saml_name_id_format.json              timeout=1h;
 
 # Zone for storing SAML SessionIndex values. (REQUIRED)
 # Timeout determines how long the SP keeps SessionIndex values. Must be equal to session lifetime.
-keyval_zone zone=saml_session_index:1M              state=saml_session_index.json               timeout=1h;
+keyval_zone zone=saml_session_index:1M              state=conf.d/saml_session_index.json               timeout=1h;
 
 # Zone for storing SAML AuthnContextClassRef values. (REQUIRED)
 # Timeout determines how long the SP keeps AuthnContextClassRef values. Must be equal to session lifetime.
-keyval_zone zone=saml_authn_context_class_ref:1M    state=saml_authn_context_class_ref.json     timeout=1h;
+keyval_zone zone=saml_authn_context_class_ref:1M    state=conf.d/saml_authn_context_class_ref.json     timeout=1h;
 ```
 
 Each of the `keyval_zone` parameters are described below.
 
-- **zone** - Specifies the name of the key-value store and how much memory to allocate for it. Each session will typically occupy less than 1KB, depending on the size of the attributes, so scale this value to exceed the number of unique users that may authenticate. 
+- **zone** - Defines the name of the key-value store and the amount of memory allocated for it. Each session typically occupies less than 1KB, depending on the attribute size. To accommodate unique users who may authenticate, scale this value accordingly.
 
-- **state** (optional) - Specifies where all of the ID Tokens in the key-value store are saved, so that sessions will persist across restart or reboot of the NGINX host. The NGINX Plus user account, typically **nginx**, must have write permission to the directory where the state file is stored. Consider creating a dedicated directory for this purpose.
+- **state** (optional) - Specifies the location where all of the SAML-related attributes in the key-value store are saved, ensuring that sessions persist across restarts or reboots of the NGINX host. The NGINX Plus user account, typically **nginx**, must have write permission to the directory where the state file is stored. It is recommended to create a dedicated directory for this purpose.
 
-- **timeout** - Expired tokens are removed from the key-value store after the `timeout` value. Set `timeout` to the desired session duration.
+- **timeout** - Expired attributes are removed from the key-value store after the specified `timeout` value. Set `timeout` to the desired session duration to control attribute persistence.
 
-- **sync** (optional) - If deployed in a cluster, the key-value store may be synchronized across all instances in the cluster, so that all instances are able to create and validate authenticated sessions. Each instance must be configured to participate in state sharing with the [zone_sync module](http://nginx.org/en/docs/stream/ngx_stream_zone_sync_module.html) and by adding the `sync` parameter to the `keyval_zone` directives above.
+- **sync** (optional) - When deployed in a cluster, the key-value store can be synchronized across all instances in the cluster, enabling all instances to create and validate authenticated sessions. To configure each instance for state sharing, use the [zone_sync module](http://nginx.org/en/docs/stream/ngx_stream_zone_sync_module.html) and add the `sync` parameter to the `keyval_zone` directives mentioned earlier.
