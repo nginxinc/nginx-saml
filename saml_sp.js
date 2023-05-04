@@ -169,8 +169,13 @@ function processSAMLMessageHeader(r, opt, root) {
 
     /* Check the date and time when the SAML message was issued (Required) */
     const currentTime = new Date();
-    const issueInstant = new Date(root.$attr$issueInstant);
-    if (issueInstant > currentTime) {
+    const issueInstant = root.$attr$IssueInstant;
+    if (!issueInstant) {
+        throw Error("IssueInstant attribute is missing in the SAML message");
+    }
+
+    const issueInstantDate = new Date(issueInstant);
+    if (issueInstantDate > currentTime) {
         throw Error(`IssueInstant is in the future. Check clock skew of SP and IdP`);
     }
 
@@ -296,8 +301,8 @@ function checkSubjectConfirmation(root) {
         }
 
         const now = new Date();
-        let notOnOrAfter = root.NotOnOrAfter ? new Date(root.NotOnOrAfter) : now;
-        if (notOnOrAfter < now) {
+        const notOnOrAfter = root.$attr$NotOnOrAfter ? new Date(root.$attr$NotOnOrAfter) : null;
+        if (notOnOrAfter && notOnOrAfter < now) {
             throw new Error(`The Subject has expired. Current time is ${now} ` +
                             `and NotOnOrAfter is ${notOnOrAfter}`);
         }
@@ -323,15 +328,15 @@ function checkConditions(root, spEntityId) {
     }
 
     const now = new Date();
-    const notBefore = root.NotBefore ? new Date(root.NotBefore) : now;
-    const notOnOrAfter = root.NotOnOrAfter ? new Date(root.NotOnOrAfter) : now;
+    const notBefore = root.$attr$NotBefore ? new Date(root.$attr$NotBefore) : null;
+    const notOnOrAfter = root.$attr$NotOnOrAfter ? new Date(root.$attr$NotOnOrAfter) : null;
 
-    if (notBefore > now) {
+    if (notBefore && notBefore > now) {
         throw Error(`The Assertion is not yet valid. Current time is ${now} and ` +
                     `NotBefore is ${notBefore}`);
     }
 
-    if (notOnOrAfter < now) {
+    if (notOnOrAfter && notOnOrAfter < now) {
         throw Error(`The Assertion has expired. Current time is ${now} and ` +
                     `NotOnOrAfter is ${notOnOrAfter}`);
     }
@@ -389,14 +394,12 @@ function parseAuthnStatement(root, maxAuthenticationAge) {
 
     const sessionIndex = root.$attr$SessionIndex || null;
 
-    const sessionNotOnOrAfter = root.$attr$SessionNotOnOrAfter;
-    if (sessionNotOnOrAfter) {
-        const sessionNotOnOrAfterDate = new Date(sessionNotOnOrAfter);
-        const now = new Date();
-        if (sessionNotOnOrAfterDate.getTime() < now.getTime()) {
-            throw Error(`The Assertion Session has expired. Current time is ${now} and ` +
-                        `SessionNotOnOrAfter is ${sessionNotOnOrAfterDate}`);
-        }
+    const now = new Date();
+    const sessionNotOnOrAfter = root.$attr$SessionNotOnOrAfter ?
+                                new Date(root.$attr$SessionNotOnOrAfter) : null;
+    if (sessionNotOnOrAfter && sessionNotOnOrAfter < now) {
+        throw Error(`The Assertion Session has expired. Current time is ${now} and ` +
+                    `SessionNotOnOrAfter is ${sessionNotOnOrAfter}`);
     }
 
     root = root.AuthnContext;
