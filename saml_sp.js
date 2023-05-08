@@ -877,9 +877,14 @@ async function verifySAMLSignature(root, keyDataArray) {
     const errors = [];
     for (let i = 0; i < keyDataArray.length; i++) {
         try {
-            await digestSAML(rootSignature);
-            await signatureSAML(rootSignature, keyDataArray[i]);
-            return;
+            const digestResult = await digestSAML(rootSignature);
+            const signatureResult = await signatureSAML(rootSignature, keyDataArray[i]);
+
+            if (digestResult && signatureResult) {
+                return;
+            } else {
+                errors.push(`Key index ${i}: signature verification failed`);
+            }
         } catch (e) {
             errors.push(e.message);
         }
