@@ -409,7 +409,7 @@ This is part of the advanced configuration in **saml_sp_configuration.conf**.
 The [key-value store](http://nginx.org/en/docs/http/ngx_http_keyval_module.html) is used to maintain persistent storage for SAML sessons and extracted SAML attributes. The default configuration should be reviewed so that it suits the environment. If you need access to any extracted SAML attribute as a NGINX variable, you need to create a separate `keyval_zone`, as well as a `keyval` record for each such attribute, for example, if the SAML attribute name is `email` you need to add the following 2 entries:
 
 ```nginx
-keyval_zone    zone=saml_attrib_email:1M                state=conf.d/saml_attrib_email.json   timeout=1h;
+keyval_zone    zone=saml_attrib_email:1M                state=/var/lib/nginx/state/saml_attrib_email.json   timeout=1h;
 keyval         $cookie_auth_token $saml_attrib_email    zone=saml_attrib_email;
 ```
 
@@ -422,31 +422,31 @@ The following keyval zones are added by default:
 # to prevent replay attacks. (REQUIRED)
 # Timeout determines how long the SP waits for a response from the IDP,
 # i.e. how long the user authentication process can take.
-keyval_zone zone=saml_request_id:1M                 state=conf.d/saml_request_id.json                  timeout=5m;
+keyval_zone zone=saml_request_id:1M                 state=/var/lib/nginx/state/saml_request_id.json                  timeout=5m;
 
 # Zone for storing SAML Response message identifiers (ID) to prevent replay attacks. (REQUIRED)
 # Timeout determines how long the SP keeps IDs to prevent reuse.
-keyval_zone zone=saml_response_id:1M                state=conf.d/saml_response_id.json                 timeout=1h;
+keyval_zone zone=saml_response_id:1M                state=/var/lib/nginx/state/saml_response_id.json                 timeout=1h;
 
 # Zone for storing SAML session access information. (REQUIRED)
 # Timeout determines how long the SP keeps session access decision (the session lifetime).
-keyval_zone zone=saml_session_access:1M             state=conf.d/saml_session_access.json              timeout=1h;
+keyval_zone zone=saml_session_access:1M             state=/var/lib/nginx/state/saml_session_access.json              timeout=1h;
 
 # Zone for storing SAML NameID values. (REQUIRED)
 # Timeout determines how long the SP keeps NameID values. Must be equal to session lifetime.
-keyval_zone zone=saml_name_id:1M                    state=conf.d/saml_name_id.json                     timeout=1h;
+keyval_zone zone=saml_name_id:1M                    state=/var/lib/nginx/state/saml_name_id.json                     timeout=1h;
 
 # Zone for storing SAML NameID format values. (REQUIRED)
 # Timeout determines how long the SP keeps NameID format values. Must be equal to session lifetime.
-keyval_zone zone=saml_name_id_format:1M             state=conf.d/saml_name_id_format.json              timeout=1h;
+keyval_zone zone=saml_name_id_format:1M             state=/var/lib/nginx/state/saml_name_id_format.json              timeout=1h;
 
 # Zone for storing SAML SessionIndex values. (REQUIRED)
 # Timeout determines how long the SP keeps SessionIndex values. Must be equal to session lifetime.
-keyval_zone zone=saml_session_index:1M              state=conf.d/saml_session_index.json               timeout=1h;
+keyval_zone zone=saml_session_index:1M              state=/var/lib/nginx/state/saml_session_index.json               timeout=1h;
 
 # Zone for storing SAML AuthnContextClassRef values. (REQUIRED)
 # Timeout determines how long the SP keeps AuthnContextClassRef values. Must be equal to session lifetime.
-keyval_zone zone=saml_authn_context_class_ref:1M    state=conf.d/saml_authn_context_class_ref.json     timeout=1h;
+keyval_zone zone=saml_authn_context_class_ref:1M    state=/var/lib/nginx/state/saml_authn_context_class_ref.json     timeout=1h;
 ```
 
 Each of the `keyval_zone` parameters are described below.
