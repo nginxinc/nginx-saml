@@ -455,7 +455,7 @@ function saveSAMLAttributes(r, root) {
 
             /* If the attribute name is a URI, take only the last part after the last "/" */
             if (attributeName.includes("http://") || attributeName.includes("https://")) {
-                attributeName = attributeName.split("/").pop();
+                attributeName = attributeName.substring(attributeName.lastIndexOf('/')+1);
             }
 
             /* Save attributeName and value to the key-value store */
