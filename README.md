@@ -413,7 +413,9 @@ keyval_zone    zone=saml_attrib_email:1M                state=conf.d/saml_attrib
 keyval         $cookie_auth_token $saml_attrib_email    zone=saml_attrib_email;
 ```
 
-Please note that the variable name includes the prefix `$saml_attrib_`. In the example above, the full variable name would be `$saml_attrib_email`.
+> **Note**:
+> - The NGINX variable name includes the prefix `$saml_attrib_`. In the example above, the full variable name would be `$saml_attrib_email`.  
+> - If a SAML attribute name is a namespace-qualified (like "http://schemas.example.com/identity/claims/displayname"), the system will use the last segment after the final slash ("/") as the attribute name. So, in this case, `displayname` will be correctly saved. Review your configuration if you use URI-style SAML attributes.
 
 The following keyval zones are added by default:
 

@@ -453,6 +453,11 @@ function saveSAMLAttributes(r, root) {
         if (attrs.hasOwnProperty(attributeName)) {
             var attributeValue = attrs[attributeName];
 
+            /* If the attribute name is a URI, take only the last part after the last "/" */
+            if (attributeName.includes("http://") || attributeName.includes("https://")) {
+                attributeName = attributeName.substring(attributeName.lastIndexOf('/')+1);
+            }
+
             /* Save attributeName and value to the key-value store */
             try {
                 r.variables['saml_attrib_' + attributeName] = attributeValue;
