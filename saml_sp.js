@@ -452,7 +452,12 @@ function getAttributes(root) {
 }
 
 function saveSAMLAttributes(r, root) {
+    if (!root) {
+        return;
+    }
+
     let attrs = getAttributes(root.$tags$Attribute);
+
     for (var attributeName in attrs) {
         if (attrs.hasOwnProperty(attributeName)) {
             var attributeValue = attrs[attributeName];
