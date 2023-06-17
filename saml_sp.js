@@ -407,7 +407,11 @@ function parseAuthnStatement(root, maxAuthenticationAge) {
     if (!root) {
         throw Error('The AuthnContext element is missing in the AuthnStatement');
     }
-    
+
+    if (!root.AuthnContextClassRef) {
+        throw Error('The AuthnContextClassRef element is missing in the AuthnContext');
+    }
+
     const authnContextClassRef = root.AuthnContextClassRef.$text;
 
     return [sessionIndex, authnContextClassRef];
@@ -417,13 +421,13 @@ function saveSAMLVariables(r, nameID, authnStatement) {
     r.variables.saml_name_id = nameID[0];
     r.variables.saml_name_id_format = nameID[1];
 
-    if (authnStatement[0]) {
-        try {
-            r.variables.saml_session_index = authnStatement[0];
-        } catch(e) {}
-    }
+    if (authnStatement) {
+        if (authnStatement[0]) {
+            try {
+                r.variables.saml_session_index = authnStatement[0];
+            } catch(e) {}
+        }
 
-    if (authnStatement[1]) {
         try {
             r.variables.saml_authn_context_class_ref = authnStatement[1];
         } catch(e) {}
