@@ -236,6 +236,14 @@ function checkIssuer(root, idpEntityId) {
  * @throws {Error} - If the SAML status is not "Success".
  */
 function verifyResponseStatus (root) {
+    if (!root) {
+        throw Error("The Status element is missing in the SAML response");
+    }
+
+    if (!root.StatusCode || !root.StatusCode.$attr$Value) {
+        throw Error("The StatusCode element is missing in the Status");
+    }
+
     const statusCode = root.StatusCode.$attr$Value;
 
     const success = "urn:oasis:names:tc:SAML:2.0:status:Success";
