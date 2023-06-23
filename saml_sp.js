@@ -169,8 +169,13 @@ function processSAMLMessageHeader(r, opt, root) {
 
     /* Check the date and time when the SAML message was issued (Required) */
     const currentTime = new Date();
-    const issueInstant = new Date(root.$attr$issueInstant);
-    if (issueInstant > currentTime) {
+    const issueInstant = root.$attr$IssueInstant;
+    if (!issueInstant) {
+        throw Error("IssueInstant attribute is missing in the SAML message");
+    }
+
+    const issueInstantDate = new Date(issueInstant);
+    if (issueInstantDate > currentTime) {
         throw Error(`IssueInstant is in the future. Check clock skew of SP and IdP`);
     }
 
@@ -231,6 +236,14 @@ function checkIssuer(root, idpEntityId) {
  * @throws {Error} - If the SAML status is not "Success".
  */
 function verifyResponseStatus (root) {
+    if (!root) {
+        throw Error("The Status element is missing in the SAML response");
+    }
+
+    if (!root.StatusCode || !root.StatusCode.$attr$Value) {
+        throw Error("The StatusCode element is missing in the Status");
+    }
+
     const statusCode = root.StatusCode.$attr$Value;
 
     const success = "urn:oasis:names:tc:SAML:2.0:status:Success";
@@ -296,8 +309,8 @@ function checkSubjectConfirmation(root) {
         }
 
         const now = new Date();
-        let notOnOrAfter = root.NotOnOrAfter ? new Date(root.NotOnOrAfter) : now;
-        if (notOnOrAfter < now) {
+        const notOnOrAfter = root.$attr$NotOnOrAfter ? new Date(root.$attr$NotOnOrAfter) : null;
+        if (notOnOrAfter && notOnOrAfter < now) {
             throw new Error(`The Subject has expired. Current time is ${now} ` +
                             `and NotOnOrAfter is ${notOnOrAfter}`);
         }
@@ -323,15 +336,15 @@ function checkConditions(root, spEntityId) {
     }
 
     const now = new Date();
-    const notBefore = root.NotBefore ? new Date(root.NotBefore) : now;
-    const notOnOrAfter = root.NotOnOrAfter ? new Date(root.NotOnOrAfter) : now;
+    const notBefore = root.$attr$NotBefore ? new Date(root.$attr$NotBefore) : null;
+    const notOnOrAfter = root.$attr$NotOnOrAfter ? new Date(root.$attr$NotOnOrAfter) : null;
 
-    if (notBefore > now) {
+    if (notBefore && notBefore > now) {
         throw Error(`The Assertion is not yet valid. Current time is ${now} and ` +
                     `NotBefore is ${notBefore}`);
     }
 
-    if (notOnOrAfter < now) {
+    if (notOnOrAfter && notOnOrAfter < now) {
         throw Error(`The Assertion has expired. Current time is ${now} and ` +
                     `NotOnOrAfter is ${notOnOrAfter}`);
     }
@@ -389,14 +402,12 @@ function parseAuthnStatement(root, maxAuthenticationAge) {
 
     const sessionIndex = root.$attr$SessionIndex || null;
 
-    const sessionNotOnOrAfter = root.$attr$SessionNotOnOrAfter;
-    if (sessionNotOnOrAfter) {
-        const sessionNotOnOrAfterDate = new Date(sessionNotOnOrAfter);
-        const now = new Date();
-        if (sessionNotOnOrAfterDate.getTime() < now.getTime()) {
-            throw Error(`The Assertion Session has expired. Current time is ${now} and ` +
-                        `SessionNotOnOrAfter is ${sessionNotOnOrAfterDate}`);
-        }
+    const now = new Date();
+    const sessionNotOnOrAfter = root.$attr$SessionNotOnOrAfter ?
+                                new Date(root.$attr$SessionNotOnOrAfter) : null;
+    if (sessionNotOnOrAfter && sessionNotOnOrAfter < now) {
+        throw Error(`The Assertion Session has expired. Current time is ${now} and ` +
+                    `SessionNotOnOrAfter is ${sessionNotOnOrAfter}`);
     }
 
     root = root.AuthnContext;
@@ -404,7 +415,11 @@ function parseAuthnStatement(root, maxAuthenticationAge) {
     if (!root) {
         throw Error('The AuthnContext element is missing in the AuthnStatement');
     }
-    
+
+    if (!root.AuthnContextClassRef) {
+        throw Error('The AuthnContextClassRef element is missing in the AuthnContext');
+    }
+
     const authnContextClassRef = root.AuthnContextClassRef.$text;
 
     return [sessionIndex, authnContextClassRef];
@@ -414,13 +429,13 @@ function saveSAMLVariables(r, nameID, authnStatement) {
     r.variables.saml_name_id = nameID[0];
     r.variables.saml_name_id_format = nameID[1];
 
-    if (authnStatement[0]) {
-        try {
-            r.variables.saml_session_index = authnStatement[0];
-        } catch(e) {}
-    }
+    if (authnStatement) {
+        if (authnStatement[0]) {
+            try {
+                r.variables.saml_session_index = authnStatement[0];
+            } catch(e) {}
+        }
 
-    if (authnStatement[1]) {
         try {
             r.variables.saml_authn_context_class_ref = authnStatement[1];
         } catch(e) {}
@@ -445,10 +460,20 @@ function getAttributes(root) {
 }
 
 function saveSAMLAttributes(r, root) {
+    if (!root) {
+        return;
+    }
+
     let attrs = getAttributes(root.$tags$Attribute);
+
     for (var attributeName in attrs) {
         if (attrs.hasOwnProperty(attributeName)) {
             var attributeValue = attrs[attributeName];
+
+            /* If the attribute name is a URI, take only the last part after the last "/" */
+            if (attributeName.includes("http://") || attributeName.includes("https://")) {
+                attributeName = attributeName.substring(attributeName.lastIndexOf('/')+1);
+            }
 
             /* Save attributeName and value to the key-value store */
             try {
@@ -874,9 +899,14 @@ async function verifySAMLSignature(root, keyDataArray) {
     const errors = [];
     for (let i = 0; i < keyDataArray.length; i++) {
         try {
-            await digestSAML(rootSignature);
-            await signatureSAML(rootSignature, keyDataArray[i]);
-            return;
+            const digestResult = await digestSAML(rootSignature);
+            const signatureResult = await signatureSAML(rootSignature, keyDataArray[i]);
+
+            if (digestResult && signatureResult) {
+                return;
+            } else {
+                errors.push(`Key index ${i}: signature verification failed`);
+            }
         } catch (e) {
             errors.push(e.message);
         }
