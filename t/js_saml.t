@@ -12,8 +12,6 @@ use strict;
 
 use Test::More;
 
-use Socket qw/ CRLF /;
-
 BEGIN { use FindBin; chdir($FindBin::Bin); }
 
 use lib 'lib';
@@ -24,7 +22,6 @@ use XML::LibXML;
 use JSON::PP;
 use URI::Escape;
 use DateTime;
-use Data::Dumper;
 
 use IO::Uncompress::RawInflate qw(rawinflate $RawInflateError);
 use IO::Compress::RawDeflate qw(rawdeflate $RawDeflateError);
@@ -44,7 +41,7 @@ select STDOUT; $| = 1;
 eval { require JSON::PP; };
 plan(skip_all => "JSON::PP not installed") if $@;
 
-my $t = Test::Nginx->new()->has(qw/http/)
+my $t = Test::Nginx->new()->has(qw/http rewrite proxy gzip api keyval/)
 	->write_file_expand('nginx.conf', <<'EOF');
 
 %%TEST_GLOBALS%%
@@ -264,13 +261,13 @@ foreach my $name ('sp.example.com', 'idp.example.com') {
 		. ">>$d/openssl.out 2>&1") == 0
 		or die "Can't create certificate for $name: $!\n";
 
-    system('openssl x509 '
+	system('openssl x509 '
 		. "-in $d/$name.crt -outform DER "
 		. "-out $d/$name.der "
 		. ">>$d/openssl.out 2>&1") == 0
 		or die "Can't convert $name.pem to $name.der: $!\n";
 
-    system('openssl x509 -inform DER '
+	system('openssl x509 -inform DER '
 		. "-in $d/$name.der -pubkey -noout "
 		. "> $d/$name.spki 2>&1") == 0
 		or die "Can't extract pub key from $name.der: $!\n";
@@ -296,28 +293,28 @@ my $sls = '/saml/sls';
 ###############################################################################
 
 my $cfg = {
-    saml_sp_entity_id => 'http://sp.example.com',
-    saml_sp_acs_url => 'http://sp.example.com:8080/saml/acs',
-    saml_sp_request_binding => 'HTTP-POST',
-    saml_sp_sign_authn => 'true',
-    saml_sp_signing_key => "$d/sp.example.com.key",
-    saml_sp_decryption_key => "$d/sp.example.com.key",
-    saml_sp_force_authn => 'true',
-    saml_sp_nameid_format => 'urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress',
-    saml_sp_relay_state => '/foo?a=b',
-    saml_sp_want_signed_response => 'false',
-    saml_sp_want_signed_assertion => 'false',
-    saml_sp_want_encrypted_assertion => 'false',
-    saml_idp_entity_id => 'http://idp.example.com',
-    saml_idp_sso_url => 'http://idp.example.com:8090/sso',
-    saml_idp_verification_certificate => "$d/idp.example.com.spki",
-    saml_sp_slo_url => 'http://sp.example.com:8080/saml/sls',
-    saml_sp_slo_binding => 'HTTP-POST',
-    saml_sp_sign_slo => 'false',
-    saml_idp_slo_url => 'http://idp.example.com:8090/slo',
-    saml_sp_want_signed_slo => 'false',
-    saml_logout_landing_page => '/_logout',
-    saml_cookie_flags => 'Path=/; SameSite=lax;',
+	saml_sp_entity_id => 'http://sp.example.com',
+	saml_sp_acs_url => 'http://sp.example.com:8080/saml/acs',
+	saml_sp_request_binding => 'HTTP-POST',
+	saml_sp_sign_authn => 'true',
+	saml_sp_signing_key => "$d/sp.example.com.key",
+	saml_sp_decryption_key => "$d/sp.example.com.key",
+	saml_sp_force_authn => 'true',
+	saml_sp_nameid_format => 'urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress',
+	saml_sp_relay_state => '/foo?a=b',
+	saml_sp_want_signed_response => 'false',
+	saml_sp_want_signed_assertion => 'false',
+	saml_sp_want_encrypted_assertion => 'false',
+	saml_idp_entity_id => 'http://idp.example.com',
+	saml_idp_sso_url => 'http://idp.example.com:8090/sso',
+	saml_idp_verification_certificate => "$d/idp.example.com.spki",
+	saml_sp_slo_url => 'http://sp.example.com:8080/saml/sls',
+	saml_sp_slo_binding => 'HTTP-POST',
+	saml_sp_sign_slo => 'false',
+	saml_idp_slo_url => 'http://idp.example.com:8090/slo',
+	saml_sp_want_signed_slo => 'false',
+	saml_logout_landing_page => '/_logout',
+	saml_cookie_flags => 'Path=/; SameSite=lax;',
 };
 
 cfg_post($cfg, 1);
@@ -328,24 +325,24 @@ my $r = parse_response(get('/'));
 
 is($r->{Action}, $cfg->{saml_idp_sso_url}, 'authn request post action');
 is($r->{RelayState}, $cfg->{saml_sp_relay_state},
-    'authn request post relaystate');
+	'authn request post relaystate');
 is($r->{Type}, 'AuthnRequest', 'authn request header type');
 is($r->{Version}, '2.0', 'authn request version');
 is($r->{ProtocolBinding}, 'urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST',
-    'authn request protocolbinding');
+	'authn request protocolbinding');
 like($r->{ID}, qr/^_[a-f0-9]{40}$/, 'authn request id');
 ok(is_issue_instant_valid($r->{IssueInstant}), 'authn request issueinstant');
 is($r->{AssertionConsumerServiceURL}, $cfg->{saml_sp_acs_url},
-    'authn request acs url');
+	'authn request acs url');
 is($r->{Destination}, $cfg->{saml_idp_sso_url}, 'authn request destination');
 is($r->{ForceAuthn}, $cfg->{saml_sp_force_authn},
-    'authn request forceauthn true');
+	'authn request forceauthn true');
 is($r->{Issuer}, $cfg->{saml_sp_entity_id}, 'authn request issuer url');
 is($r->{isValid}, 1, 'authn request sign valid');
 is($r->{NameIDPolicyFormat}, $cfg->{saml_sp_nameid_format},
-    'authn request nameidpolicy format');
+	'authn request nameidpolicy format');
 like(get("$kv/saml_request_id"), qr/"$r->{ID}":"1"/,
-    'authn request id redeemed');
+	'authn request id redeemed');
 
 # Reconfiguration
 
@@ -359,9 +356,9 @@ cfg_post($cfg);
 $r = parse_response(get('/'));
 
 like($r->{Action}, qr/$cfg->{saml_idp_sso_url}\?SAMLRequest=/,
-    'authn request get location');
+	'authn request get location');
 is($r->{RelayState}, $cfg->{saml_sp_relay_state},
-    'authn request get relaystate');
+	'authn request get relaystate');
 ok(!defined($r->{ForceAuthn}), 'authn request forceauthn false');
 is($r->{Issuer}, $cfg->{saml_sp_entity_id}, 'authn request issuer urn');
 is($r->{isSigned}, 0, 'authn request not signed');
@@ -378,31 +375,31 @@ cfg_verify('saml_sp_sign_authn', 'saml_sp_sign_authn validation');
 
 $r = init_sso($cfg, 1);
 like(get('/', auth_token => get_auth_token($r)), qr/Welcome user1/,
-    'sp-initiated sso');
+	'sp-initiated sso');
 like($r, qr{302.*http://sp.example.com:8080/foo\?a=b}s,
-    'sp sso redirect to relay state');
+	'sp sso redirect to relay state');
 like($r, qr/lax/, 'sp sso cookie flags');
 
 cfg_post({saml_sp_relay_state => ""});
 $r = init_sso($cfg, 1, auth_redir => '/foo?a=b');
 like($r, qr{302.*http://sp.example.com:8080/foo\?a=b}s,
-    'sp sso redirect to request uri');
+	'sp sso redirect to request uri');
 
 # Keyval attributes validation
 
 like(get("$kv/saml_response_id"), qr/"_nginx_[^"]+":\s*"1"/,
-    'kv response id');
+	'kv response id');
 like(get("$kv/saml_name_id"), qr/user1/, 'kv response name id');
 like(get("$kv/saml_name_id_format"), qr/unspecified/,
-    'kv response name id format');
+	'kv response name id format');
 like(get("$kv/saml_session_index"), qr/_nginx_sessionindex_/,
-    'kv response session index');
+	'kv response session index');
 like(get("$kv/saml_authn_context_class_ref"), qr/Password/,
-    'kv authn context class ref');
+	'kv authn context class ref');
 like(get("$kv/saml_attrib_uid"), qr/"1"/, 'kv uid attr');
 like(get("$kv/saml_attrib_name"), qr/"Alan Alda"/, 'kv name attr');
 like(get("$kv/saml_attrib_memberOf"), qr/"group1, admins, students"/,
-    'kv memberof attr');
+	'kv memberof attr');
 like(get("$kv/saml_attrib_foo"), qr/"bar"/, 'kv namespace-qualified attr');
 
 ### Signature validation
@@ -410,82 +407,82 @@ like(get("$kv/saml_attrib_foo"), qr/"bar"/, 'kv namespace-qualified attr');
 $cfg->{saml_sp_want_signed_response} = 'false';
 $cfg->{saml_sp_want_signed_assertion} = 'false';
 cfg_post({saml_sp_want_signed_response => 'false',
-    saml_sp_want_signed_assertion => 'false'});
+	saml_sp_want_signed_assertion => 'false'});
 
 $r = init_sso($cfg);
 like(get('/', auth_token => get_auth_token($r)), qr/Welcome user1/,
-    'response and assertion unsigned');
+	'response and assertion unsigned');
 
 cfg_post({saml_sp_want_signed_response => 'true'});
 $r = init_sso($cfg);
 like($r, qr/500.*Message is unsigned/s,
-    'want signed response got unsigned');
+	'want signed response got unsigned');
 
 $cfg->{saml_sp_want_signed_response} = 'true';
 $r = init_sso($cfg);
 like(get('/', auth_token => get_auth_token($r)), qr/Welcome user1/,
-    'response signed');
+	'response signed');
 
 cfg_post({saml_sp_want_signed_assertion => 'true'});
 $r = init_sso($cfg);
 like($r, qr/500.*Message is unsigned/s,
-    'want signed assertion got unsigned');
+	'want signed assertion got unsigned');
 
 $cfg->{saml_sp_want_signed_assertion} = 'true';
 $r = init_sso($cfg);
 like(get('/', auth_token => get_auth_token($r)), qr/Welcome user1/,
-    'response and assertion signed');
+	'response and assertion signed');
 
 cfg_post({saml_idp_verification_certificate => "$d/multiple.spki"});
 $r = init_sso($cfg);
 like(get('/', auth_token => get_auth_token($r)), qr/Welcome user1/,
-    'multiple idp certs');
+	'multiple idp certs');
 
 cfg_post({saml_idp_verification_certificate => "$d/sp.example.com.key"});
 $r = init_sso($cfg);
 like($r, qr/500.*Error verifying.*signature.*error:Type=X509_PUBKEY/s,
-    'wrong cert type');
+	'wrong cert type');
 
 cfg_post({saml_idp_verification_certificate => "not_found"});
 $r = init_sso($cfg);
 like($r, qr/500.*Failed to read.*public key from file/s,
-    'idp cert file not found');
+	'idp cert file not found');
 
 cfg_post({saml_idp_verification_certificate => "$d/sp.example.com.spki"});
 $r = init_sso($cfg);
 like($r, qr/500.*Key index 0: signature verification failed/s,
-    'wrong idp cert');
+	'wrong idp cert');
 cfg_post({saml_idp_verification_certificate => "$d/idp.example.com.spki"});
 
 my $xml_obj = produce_saml('Response', $cfg);
 
 $r = modify_saml_obj($xml_obj, '//ds:Reference', 'URI', '#foo');
 like($r, qr/500.*reference URI.*does not point to the parent/s,
-    'signature reference uri mismatch');
+	'signature reference uri mismatch');
 
 $r = modify_saml_obj($xml_obj, '//ds:Transform', 'Algorithm', 'foo');
 like($r, qr/500.*unexpected digest transform/s,
-    'signature unexpected digest transform');
+	'signature unexpected digest transform');
 
 $r = modify_saml_obj($xml_obj, '//ds:DigestMethod', 'Algorithm', 'foo');
 like($r, qr/500.*unexpected digest Algorithm/s,
-    'signature unexpected digest algorithm');
+	'signature unexpected digest algorithm');
 
 $r = modify_saml_obj($xml_obj, '//ds:DigestMethod', 'Algorithm',
-    'http://www.w3.org/2000/09/xmldsig#sha1');
+	'http://www.w3.org/2000/09/xmldsig#sha1');
 like($r, qr/500.*signature verification failed/s,
-    'signature wrong digest algorithm');
+	'signature wrong digest algorithm');
 
 $r = modify_saml_obj($xml_obj, '//ds:DigestValue', 'text', 'foo');
 like($r, qr/500.*signature verification failed/s,
-    'signature digest value mismatch');
+	'signature digest value mismatch');
 
 $r = modify_saml_obj($xml_obj, '//ds:SignatureMethod', 'Algorithm', 'foo');
 like($r, qr/500.*unexpected signature Algorithm/s,
-    'signature unexpected algorithm');
+	'signature unexpected algorithm');
 
 $r = modify_saml_obj($xml_obj, '//ds:SignatureMethod', 'Algorithm',
-    'http://www.w3.org/2000/09/xmldsig#rsa-sha1');
+	'http://www.w3.org/2000/09/xmldsig#rsa-sha1');
 like($r, qr/500.*signature verification failed/s, 'signature wrong algorithm');
 
 $r = modify_saml_obj($xml_obj, '//ds:SignatureValue', 'text', 'foo');
@@ -512,135 +509,135 @@ like($r, qr/HTTP\/1\.1 500.*"foo" not found/s, 'inresponseto not found');
 
 $r = modify_saml_obj($xml_obj, '/samlp:Response', 'InResponseTo');
 like(get('/', auth_token => get_auth_token($r)), qr/Welcome user1/,
-    'idp-initiated sso');
+	'idp-initiated sso');
 
 $r = modify_saml_obj($xml_obj, '/samlp:Response', 'Destination');
 like(get('/', auth_token => get_auth_token($r)), qr/Welcome user1/,
-    'response no destination');
+	'response no destination');
 
 $r = modify_saml_obj($xml_obj, '/samlp:Response', 'Destination', 'foo');
 like($r, qr/HTTP\/1\.1 500.*not match SP ACS URL/s,
-    'response wrong destination');
+	'response wrong destination');
 
 $r = modify_saml_obj($xml_obj, '/samlp:Response', 'Version', '1.0');
 like($r, qr/HTTP\/1\.1 500.*Unsupported SAML Version/s,
-    'response unsupported version');
+	'response unsupported version');
 
 my ($ptime, $ftime) = get_time();
 $r = modify_saml_obj($xml_obj, '/samlp:Response', 'IssueInstant', $ftime);
 like($r, qr/HTTP\/1\.1 500.*IssueInstant.*in the future/s,
-    'response future issue instant');
+	'response future issue instant');
 
 $r = modify_saml_obj($xml_obj, '/samlp:Response', 'IssueInstant');
 like($r, qr/HTTP\/1\.1 500.*IssueInstant.*is missing/s,
-    'response no issue instant');
+	'response no issue instant');
 
 $r = modify_saml_obj($xml_obj, '//saml:Issuer');
 like($r, qr/HTTP\/1\.1 500/s, 'response no issuer');
 
 $r = modify_saml_obj($xml_obj, '//saml:Issuer', 'text', 'foo');
 like($r, qr/HTTP\/1\.1 500.*Issuer "foo" does not match IdP EntityID/s,
-    'response wrong issuer');
+	'response wrong issuer');
 
 $r = modify_saml_obj($xml_obj, '//samlp:StatusCode', 'Value', 'foo');
 like($r, qr/HTTP\/1\.1 500.*Error: StatusCode: foo/s,
-    'response status not success');
+	'response status not success');
 
 $r = modify_saml_obj($xml_obj, '//saml:Assertion', 'Version', '1.0');
 like($r, qr/HTTP\/1\.1 500.*Unsupported SAML Version/s,
-    'assertion unsupported version');
+	'assertion unsupported version');
 
 $r = modify_saml_obj($xml_obj, '//saml:Assertion', 'ID');
 like($r, qr/HTTP\/1\.1 500.*ID.*is missing/s, 'assertion no id');
 
 $r = modify_saml_obj($xml_obj, '//saml:Assertion', 'IssueInstant', $ftime);
 like($r, qr/HTTP\/1\.1 500.*IssueInstant.*in the future/s,
-    'assertion future issue instant');
+	'assertion future issue instant');
 
 $r = modify_saml_obj($xml_obj, '//saml:NameID');
 like($r, qr/HTTP\/1\.1 500.*NameID element is missing/s,
-    'assertion no name id');
+	'assertion no name id');
 
 $r = modify_saml_obj($xml_obj, '//saml:SubjectConfirmation');
 like(get('/', auth_token => get_auth_token($r)), qr/Welcome user1/,
-    'assertion no subject confirmation');
+	'assertion no subject confirmation');
 
 $r = modify_saml_obj($xml_obj, '//saml:SubjectConfirmationData');
 like($r, qr/HTTP\/1\.1 500.*SubjectConfirmationData.*is missing/s,
-    'assertion no subject confirmation data');
+	'assertion no subject confirmation data');
 
 $r = modify_saml_obj($xml_obj, '//saml:SubjectConfirmationData',
-    'NotOnOrAfter', $ptime);
+	'NotOnOrAfter', $ptime);
 like($r, qr/HTTP\/1\.1 500.*Subject has expired/s,
-    'assertion subject has expired');
+	'assertion subject has expired');
 
 $r = modify_saml_obj($xml_obj, '//saml:Conditions');
 like($r, qr/HTTP\/1\.1 500.*Conditions.*is missing/s,
-    'assertion no conditions');
+	'assertion no conditions');
 
 $r = modify_saml_obj($xml_obj, '//saml:Conditions', 'NotBefore', $ftime);
 like($r, qr/HTTP\/1\.1 500.*Assertion is not yet valid/s,
-    'assertion is not yet valid');
+	'assertion is not yet valid');
 
 $r = modify_saml_obj($xml_obj, '//saml:Conditions', 'NotOnOrAfter', $ptime);
 like($r, qr/HTTP\/1\.1 500.*Assertion has expired/s, 'assertion has expired');
 
 $r = modify_saml_obj($xml_obj, '//saml:AudienceRestriction');
 like(get('/', auth_token => get_auth_token($r)), qr/Welcome user1/,
-    'assertion no audience restriction');
+	'assertion no audience restriction');
 
 $r = modify_saml_obj($xml_obj, '//saml:Audience', 'text', 'foo');
 like($r, qr/HTTP\/1\.1 500.*Assertion is not intended for this Service/s,
-    'assertion wrong audience');
+	'assertion wrong audience');
 
 $r = modify_saml_obj($xml_obj, '//saml:AuthnStatement');
 like(get('/', auth_token => get_auth_token($r)), qr/Welcome user1/,
-    'assertion no authn statement');
+	'assertion no authn statement');
 
 $r = modify_saml_obj($xml_obj, '//saml:AuthnStatement', 'SessionNotOnOrAfter',
-    $ptime);
+	$ptime);
 like($r, qr/HTTP\/1\.1 500.*Assertion Session has expired/s,
-    'assertion session has expired');
+	'assertion session has expired');
 
 $r = modify_saml_obj($xml_obj, '//saml:AuthnStatement', 'SessionIndex');
 like(get('/', auth_token => get_auth_token($r)), qr/Welcome user1/,
-    'assertion no sessionindex');
+	'assertion no sessionindex');
 
 $r = modify_saml_obj($xml_obj, '//saml:AuthnContextClassRef');
 like($r, qr/HTTP\/1\.1 500.*AuthnContextClassRef.*is missing/s,
-    'assertion no authncontextclassref');
+	'assertion no authncontextclassref');
 
 $r = modify_saml_obj($xml_obj, '//saml:AttributeStatement');
 like(get('/', auth_token => get_auth_token($r)), qr/Welcome user1/,
-    'assertion no attribute statement');
+	'assertion no attribute statement');
 
 ### SP-initiated logout
 
 # Logout Request
 
 $r = parse_response(get('/logout', 
-    auth_token => get_auth_token(init_sso($cfg))));
+	auth_token => get_auth_token(init_sso($cfg))));
 
 is($r->{Action}, $cfg->{saml_idp_slo_url}, 'sp logout request post action');
 is($r->{RelayState}, $cfg->{saml_logout_landing_page},
-    'sp logout request post relaystate');
+	'sp logout request post relaystate');
 is($r->{Type}, 'LogoutRequest', 'sp logout request msg type');
 is($r->{Version}, '2.0', 'sp logout request version');
 like($r->{ID}, qr/^_[a-f0-9]{40}$/, 'sp logout request id');
 ok(is_issue_instant_valid($r->{IssueInstant}),
-    'sp logout request issueinstant');
+	'sp logout request issueinstant');
 is($r->{Destination}, $cfg->{saml_idp_slo_url},
-    'sp logout request destination');
+	'sp logout request destination');
 is($r->{Issuer}, $cfg->{saml_sp_entity_id}, 'sp logout request issuer');
 is($r->{isSigned}, 0, 'sp logout request unsigned');
 is($r->{NameID}, 'user1', 'sp logout request nameid');
 like(get("$kv/saml_request_id"), qr/"$r->{ID}":"1"/,
-    'sp logout request id redeemed');
+	'sp logout request id redeemed');
 
 $r = parse_response(get('/logout'));
 like($r, qr{302.*Location:\shttp://sp.example.com:8080/_logout.*
-    Set-Cookie:\sauth_token=;\sExpires.*1970.*
-    Set-Cookie:\sauth_redir=;.*}msx, 'sp logout request with no session');
+	Set-Cookie:\sauth_token=;\sExpires.*1970.*
+	Set-Cookie:\sauth_redir=;.*}msx, 'sp logout request with no session');
 
 # Reconfiguration
 
@@ -652,27 +649,27 @@ my $auth_token = get_auth_token(init_sso($cfg));
 $r = parse_response(get('/logout', auth_token => $auth_token));
 
 like($r->{Action}, qr/$cfg->{saml_idp_slo_url}/,
-    'sp logout request get location');
+	'sp logout request get location');
 is($r->{RelayState}, $cfg->{saml_logout_landing_page},
-    'sp logout request get relaystate');
+	'sp logout request get relaystate');
 is($r->{isValid}, 1, 'sp logout request signed');
 
 # Logout Response
 
 ($r, $auth_token) = init_slo($cfg, sp_initiated => 1);
 like($r, qr{302.*Location:\shttp://sp.example.com:8080/_logout.*
-    Set-Cookie:\sauth_token=;\sExpires.*1970.*
-    Set-Cookie:\sauth_redir=;\sExpires.*1970.*}msx,
-    'idp logout response post method');
+	Set-Cookie:\sauth_token=;\sExpires.*1970.*
+	Set-Cookie:\sauth_redir=;\sExpires.*1970.*}msx,
+	'idp logout response post method');
 like(get("$kv/saml_name_id"), qr/"$auth_token":"-"/, 'slo nameid cleared');
 like(get("$kv/saml_session_access"), qr/"$auth_token":"-"/,
-    'slo session access cleared');
+	'slo session access cleared');
 
 ($r, undef) = init_slo($cfg, sp_initiated => 1, method => 'get');
 like($r, qr{302.*Location:\shttp://sp.example.com:8080/_logout.*
-    Set-Cookie:\sauth_token=;\sExpires.*1970.*
-    Set-Cookie:\sauth_redir=;\sExpires.*1970.*}msx,
-    'idp logout response get method');
+	Set-Cookie:\sauth_token=;\sExpires.*1970.*
+	Set-Cookie:\sauth_redir=;\sExpires.*1970.*}msx,
+	'idp logout response get method');
 
 cfg_post({saml_sp_want_signed_slo => 'true'});
 ($r, undef) = init_slo($cfg, sp_initiated => 1);
@@ -681,9 +678,9 @@ like($r, qr/500.*Message is unsigned/s, 'idp logout response unsigned');
 $cfg->{saml_sp_want_signed_slo} = 'true';
 ($r, undef) = init_slo($cfg, sp_initiated => 1);
 like($r, qr{302.*Location:\shttp://sp.example.com:8080/_logout.*
-    Set-Cookie:\sauth_token=;\sExpires.*1970.*
-    Set-Cookie:\sauth_redir=;\sExpires.*1970.*}msx,
-    'idp logout response signed');
+	Set-Cookie:\sauth_token=;\sExpires.*1970.*
+	Set-Cookie:\sauth_redir=;\sExpires.*1970.*}msx,
+	'idp logout response signed');
 
 $cfg->{saml_sp_want_signed_slo} = 'false';
 cfg_post({saml_sp_want_signed_slo => 'false'});
@@ -695,22 +692,22 @@ $r = parse_response(get('/logout', auth_token => $auth_token));
 $xml_obj = produce_saml('LogoutResponse', $cfg, $r->{ID});
 
 $r = modify_saml_obj($xml_obj, '//samlp:Status', undef, undef,
-    auth_token => $auth_token, relay_state => $cfg->{saml_logout_landing_page});
+	auth_token => $auth_token, relay_state => $cfg->{saml_logout_landing_page});
 like($r, qr/500.*Status element is missing/s,
-    'idp logout response no status');
+	'idp logout response no status');
 
 $r = modify_saml_obj($xml_obj, '//samlp:StatusCode', undef, undef,
-    auth_token => $auth_token, relay_state => $cfg->{saml_logout_landing_page});
+	auth_token => $auth_token, relay_state => $cfg->{saml_logout_landing_page});
 like($r, qr/500.*StatusCode element is missing/s,
-    'idp logout response no status code');
+	'idp logout response no status code');
 
 $r = modify_saml_obj($xml_obj, '//samlp:StatusCode', 'Value', undef,
-    auth_token => $auth_token, relay_state => $cfg->{saml_logout_landing_page});
+	auth_token => $auth_token, relay_state => $cfg->{saml_logout_landing_page});
 like($r, qr/500.*StatusCode element is missing/s,
-    'idp logout response status code no value');
+	'idp logout response status code no value');
 
 $r = modify_saml_obj($xml_obj, '//samlp:StatusCode', 'Value', 'foo',
-    auth_token => $auth_token, relay_state => $cfg->{saml_logout_landing_page});
+	auth_token => $auth_token, relay_state => $cfg->{saml_logout_landing_page});
 like($r, qr/500.*StatusCode: foo/s, 'idp logout response status code not success');
 
 ### IdP-initiated logout
@@ -724,7 +721,7 @@ like($r, qr/500.*Message is unsigned/s, 'idp logout request unsigned');
 $cfg->{saml_sp_want_signed_slo} = 'true';
 ($r, undef) = init_slo($cfg);
 is($r->{StatusCode}, 'urn:oasis:names:tc:SAML:2.0:status:Success',
-    'idp logout request signed');
+	'idp logout request signed');
 
 # Logout Request validation
 
@@ -735,37 +732,37 @@ $auth_token = get_auth_token(init_sso($cfg));
 $xml_obj = produce_saml('LogoutRequest', $cfg);
 
 $r = modify_saml_obj($xml_obj, '//saml:NameID', undef, undef,
-    auth_token => $auth_token);
+	auth_token => $auth_token);
 like($r, qr/500.*NameID element is missing in the Subject/s,
-    'idp logout request no nameid');
+	'idp logout request no nameid');
 
 $r = parse_response(modify_saml_obj($xml_obj, '//saml:NameID', 'text', 'foo',
-    auth_token => $auth_token));
+	auth_token => $auth_token));
 is($r->{StatusCode}, 'urn:oasis:names:tc:SAML:2.0:status:Requester',
-    'idp logout request wrong nameid');
+	'idp logout request wrong nameid');
 
 # Logout Response
 
 ($r, undef) = init_slo($cfg, relay_state => '/foo?a=b');
 like($r->{Action}, qr/$cfg->{saml_idp_slo_url}\?SAMLResponse=/s,
-    'sp logout response get location');
+	'sp logout response get location');
 like($r->{Action}, qr{&RelayState=/foo\?a=b}s,
-    'sp logout response get relaystate');
+	'sp logout response get relaystate');
 is($r->{Type}, 'LogoutResponse', 'sp logout response type');
 is($r->{Version}, '2.0', 'sp logout response version');
 like($r->{ID}, qr/^_[a-f0-9]{40}$/, 'sp logout response id');
 ok(is_issue_instant_valid($r->{IssueInstant}),
-    'sp logout response issueinstant');
+	'sp logout response issueinstant');
 is($r->{Destination}, $cfg->{saml_idp_slo_url},
-    'sp logout response destination');
+	'sp logout response destination');
 is($r->{Issuer}, $cfg->{saml_sp_entity_id}, 'sp logout response issuer url');
 is($r->{isValid}, 1, 'sp logout response sign valid');
 is($r->{StatusCode}, 'urn:oasis:names:tc:SAML:2.0:status:Success',
-    'sp logout response status code');
+	'sp logout response status code');
 is($r->{Cookie}, 'auth_token=; auth_redir=',
-    'sp logout response session cookie cleared');
+	'sp logout response session cookie cleared');
 like(get("$kv/saml_request_id"), qr/"$r->{ID}":"1"/,
-    'sp logout response request id redeemed');
+	'sp logout response request id redeemed');
 
 # Reconfiguration
 $cfg->{saml_sp_slo_binding} = 'HTTP-POST';
@@ -783,369 +780,368 @@ is($r->{RelayState}, undef, 'sp logout response no relaystate');
 ###############################################################################
 
 sub get_auth_token {
-    my ($r) = @_;
+	my ($r) = @_;
 
-    return ($r =~ /Set-Cookie: auth_token=([^;]+);/)[0];
+	return ($r =~ /Set-Cookie: auth_token=([^;]+);/)[0];
 }
 
 sub init_sso {
-    my ($config, $sp, %extra) = @_;
+	my ($config, $sp, %extra) = @_;
 
-    my $id = $sp ? parse_response(get('/'))->{ID} : undef;
-    my $xml = produce_saml('Response', $config, $id);
-    return send_saml($xml, $acs, %extra);
+	my $id = $sp ? parse_response(get('/'))->{ID} : undef;
+	my $xml = produce_saml('Response', $config, $id);
+	return send_saml($xml, $acs, %extra);
 }
 
-
 sub init_slo {
-    my ($cfg, %extra) = @_;
+	my ($cfg, %extra) = @_;
 
-    my $auth_token = get_auth_token(init_sso($cfg));
+	my $auth_token = get_auth_token(init_sso($cfg));
 
-    if ($extra{sp_initiated}) {
-        my $logout_response = parse_response(get('/logout',
-            auth_token => $auth_token));
-        my $saml_response = produce_saml('LogoutResponse', $cfg,
-            $logout_response->{ID});
-        return (send_saml($saml_response, $sls, auth_token => $auth_token,
-            relay_state => $cfg->{saml_logout_landing_page}, %extra), $auth_token);
-    } else {
-        my $saml_request = produce_saml('LogoutRequest', $cfg);
-        return (parse_response(send_saml($saml_request, $sls,
-            auth_token => $auth_token, %extra)), $auth_token);
-    }
+	if ($extra{sp_initiated}) {
+		my $logout_response = parse_response(get('/logout',
+			auth_token => $auth_token));
+		my $saml_response = produce_saml('LogoutResponse', $cfg,
+			$logout_response->{ID});
+		return (send_saml($saml_response, $sls, auth_token => $auth_token,
+			relay_state => $cfg->{saml_logout_landing_page}, %extra), $auth_token);
+	} else {
+		my $saml_request = produce_saml('LogoutRequest', $cfg);
+		return (parse_response(send_saml($saml_request, $sls,
+			auth_token => $auth_token, %extra)), $auth_token);
+	}
 }
 
 sub modify_saml_obj {
-    my ($xml_obj, $element, $attribute, $new_val, %extra) = @_;
+	my ($xml_obj, $element, $attribute, $new_val, %extra) = @_;
 
-    my $new_xml_obj = $xml_obj->cloneNode(1);
-    my $xpc = initialize_saml_xpath_context($new_xml_obj);
-    my $root = $new_xml_obj->documentElement();
+	my $new_xml_obj = $xml_obj->cloneNode(1);
+	my $xpc = initialize_saml_xpath_context($new_xml_obj);
+	my $root = $new_xml_obj->documentElement();
 
-    if (!$xpc->findnodes('//ds:Signature')) {
-        $root->setAttribute('ID', '_nginx_' . rand(1));
-    }
+	if (!$xpc->findnodes('//ds:Signature')) {
+		$root->setAttribute('ID', '_nginx_' . rand(1));
+	}
 
-    my $url = $root->localname eq 'Response' ? $acs : $sls;
-    return send_saml($new_xml_obj, $url, %extra) unless $element;
+	my $url = $root->localname eq 'Response' ? $acs : $sls;
+	return send_saml($new_xml_obj, $url, %extra) unless $element;
 
-    my ($node) = $xpc->findnodes($element);
-    return send_saml($new_xml_obj, $url, %extra) unless $node;
+	my ($node) = $xpc->findnodes($element);
+	return send_saml($new_xml_obj, $url, %extra) unless $node;
 
-    if ($attribute) {
-        if ($attribute eq 'text') {
-            $node->removeChildNodes();
-            $node->appendText($new_val);
-        } else {
-            if (defined $new_val) {
-                $node->setAttribute($attribute, $new_val);
-            } else {
-                $node->removeAttribute($attribute);
-            }
-        }
-    } else {
-        $node->unbindNode();
-    }
+	if ($attribute) {
+		if ($attribute eq 'text') {
+			$node->removeChildNodes();
+			$node->appendText($new_val);
+		} else {
+			if (defined $new_val) {
+				$node->setAttribute($attribute, $new_val);
+			} else {
+				$node->removeAttribute($attribute);
+			}
+		}
+	} else {
+		$node->unbindNode();
+	}
 
-    return send_saml($new_xml_obj, $url, %extra);
+	return send_saml($new_xml_obj, $url, %extra);
 }
 
 sub parse_xml_string {
-    my $parser = XML::LibXML->new();
-    $parser->keep_blanks(0);
-    return $parser->parse_string(shift);
+	my $parser = XML::LibXML->new();
+	$parser->keep_blanks(0);
+	return $parser->parse_string(shift);
 }
 
 sub initialize_saml_xpath_context {
-    my $xpc = XML::LibXML::XPathContext->new(shift);
-    $xpc->registerNs('saml', 'urn:oasis:names:tc:SAML:2.0:assertion');
-    $xpc->registerNs('samlp', 'urn:oasis:names:tc:SAML:2.0:protocol');
-    $xpc->registerNs('ds', 'http://www.w3.org/2000/09/xmldsig#');
-    return $xpc;
+	my $xpc = XML::LibXML::XPathContext->new(shift);
+	$xpc->registerNs('saml', 'urn:oasis:names:tc:SAML:2.0:assertion');
+	$xpc->registerNs('samlp', 'urn:oasis:names:tc:SAML:2.0:protocol');
+	$xpc->registerNs('ds', 'http://www.w3.org/2000/09/xmldsig#');
+	return $xpc;
 }
 
 sub parse_response {
-    my ($r) = @_;
-    my %result;
-    my ($saml_base64, $relay_state, $dest, $xml_str);
+	my ($r) = @_;
+	my %result;
+	my ($saml_base64, $relay_state, $dest, $xml_str);
 
-    if ($r =~ /HTTP\/1\.. 302/) {
-        ($dest, $saml_base64, $relay_state) = parse_http_302($r);
-        return $r unless $saml_base64;
-        $xml_str = inflate_base64($saml_base64);
-    } elsif ($r =~ /HTTP\/1\.. 200/) {
-        ($dest, $saml_base64, $relay_state) = parse_http_200($r);
-        $xml_str = decode_base64(uri_unescape($saml_base64));
-    } else {
-        return $r;
-    }
+	if ($r =~ /HTTP\/1\.. 302/) {
+		($dest, $saml_base64, $relay_state) = parse_http_302($r);
+		return $r unless $saml_base64;
+		$xml_str = inflate_base64($saml_base64);
+	} elsif ($r =~ /HTTP\/1\.. 200/) {
+		($dest, $saml_base64, $relay_state) = parse_http_200($r);
+		$xml_str = decode_base64(uri_unescape($saml_base64));
+	} else {
+		return $r;
+	}
 
-    my @cookies = $r =~ /Set-Cookie: (.*?);/g;
-    $result{Cookie} = join '; ', @cookies;
+	my @cookies = $r =~ /Set-Cookie: (.*?);/g;
+	$result{Cookie} = join '; ', @cookies;
 
-    my $xml_obj = parse_xml_string($xml_str);
-    my $xpc = initialize_saml_xpath_context($xml_obj);
+	my $xml_obj = parse_xml_string($xml_str);
+	my $xpc = initialize_saml_xpath_context($xml_obj);
 
-    extract_saml_attributes(\%result, $xml_obj, $xpc, $dest, $relay_state);
+	extract_saml_attributes(\%result, $xml_obj, $xpc, $dest, $relay_state);
 
-    return \%result;
+	return \%result;
 }
 
 sub parse_http_302 {
-    my ($r) = @_;
-    my ($dest) = $r =~ /Location: (.*?)\n/;
-    my ($saml_base64) = $r =~ m{(?:SAMLResponse|SAMLRequest)=([^&]+)};
-    my ($relay_state) = $r =~ m{RelayState=([^&\r\n]+)};
-    return ($dest, $saml_base64, $relay_state);
+	my ($r) = @_;
+	my ($dest) = $r =~ /Location: (.*?)\n/;
+	my ($saml_base64) = $r =~ m{(?:SAMLResponse|SAMLRequest)=([^&]+)};
+	my ($relay_state) = $r =~ m{RelayState=([^&\r\n]+)};
+	return ($dest, $saml_base64, $relay_state);
 }
 
 sub parse_http_200 {
-    my ($r) = @_;
-    my ($dest) = $r =~ /<form method="post" action="(.*?)">/;
-    my ($saml_base64) = $r =~ 
-        /name="(?:SAMLResponse|SAMLRequest)" value="(.*?)"/;
-    my ($relay_state) = $r =~ /name="RelayState" value="(.*?)"/;
-    return ($dest, $saml_base64, $relay_state);
+	my ($r) = @_;
+	my ($dest) = $r =~ /<form method="post" action="(.*?)">/;
+	my ($saml_base64) = $r =~ 
+		/name="(?:SAMLResponse|SAMLRequest)" value="(.*?)"/;
+	my ($relay_state) = $r =~ /name="RelayState" value="(.*?)"/;
+	return ($dest, $saml_base64, $relay_state);
 }
 
 sub inflate_base64 {
-    my ($saml_base64) = @_;
-    my $deflated = decode_base64(uri_unescape($saml_base64));
-    my $xml_str;
-    rawinflate(\$deflated => \$xml_str) 
-        or die "rawinflate failed: $RawInflateError\n";
-    return $xml_str;
+	my ($saml_base64) = @_;
+	my $deflated = decode_base64(uri_unescape($saml_base64));
+	my $xml_str;
+	rawinflate(\$deflated => \$xml_str) 
+		or die "rawinflate failed: $RawInflateError\n";
+	return $xml_str;
 }
 
 sub extract_saml_attributes {
-    my ($result, $xml_obj, $xpc, $dest, $relay_state) = @_;
-    my $hdr = $xml_obj->documentElement();
+	my ($result, $xml_obj, $xpc, $dest, $relay_state) = @_;
+	my $hdr = $xml_obj->documentElement();
 
-    foreach my $attr (qw(Version ID IssueInstant Destination ProtocolBinding
-                         AssertionConsumerServiceURL ForceAuthn)) {
-        $result->{$attr} = $hdr->getAttribute($attr);
-    }
+	foreach my $attr (qw(Version ID IssueInstant Destination ProtocolBinding
+						 AssertionConsumerServiceURL ForceAuthn)) {
+		$result->{$attr} = $hdr->getAttribute($attr);
+	}
 
-    $result->{Type} = $hdr->localname;
-    $result->{Action} = $dest;
-    $result->{RelayState} = $relay_state;
-    $result->{Issuer} = get_node_text($xpc, '//saml:Issuer');
-    $result->{NameID} = get_node_text($xpc, '//saml:NameID');
+	$result->{Type} = $hdr->localname;
+	$result->{Action} = $dest;
+	$result->{RelayState} = $relay_state;
+	$result->{Issuer} = get_node_text($xpc, '//saml:Issuer');
+	$result->{NameID} = get_node_text($xpc, '//saml:NameID');
 
-    my ($signature_node) = $xpc->findnodes('//ds:Signature');
-    if ($signature_node) {
-        $result->{isValid} = 
-            verify_saml_signature($signature_node,$sp_pub);
-    } else {
-        $result->{isSigned} = 0;
-    }
+	my ($signature_node) = $xpc->findnodes('//ds:Signature');
+	if ($signature_node) {
+		$result->{isValid} = 
+			verify_saml_signature($signature_node,$sp_pub);
+	} else {
+		$result->{isSigned} = 0;
+	}
 
-    my ($name_id_policy_node) = $xpc->findnodes('//samlp:NameIDPolicy');
-    if ($name_id_policy_node) {
-        $result->{NameIDPolicyFormat} = 
-            $name_id_policy_node->getAttribute('Format');
-    }
+	my ($name_id_policy_node) = $xpc->findnodes('//samlp:NameIDPolicy');
+	if ($name_id_policy_node) {
+		$result->{NameIDPolicyFormat} = 
+			$name_id_policy_node->getAttribute('Format');
+	}
 
-    my ($status_code) = $xpc->findnodes('//samlp:StatusCode');
-    if ($status_code) {
-        $result->{StatusCode} = $status_code->getAttribute('Value');
-    }
+	my ($status_code) = $xpc->findnodes('//samlp:StatusCode');
+	if ($status_code) {
+		$result->{StatusCode} = $status_code->getAttribute('Value');
+	}
 }
 
 sub get_node_text {
-    my ($xpc, $xpath) = @_;
-    my ($node) = $xpc->findnodes($xpath);
-    return $node ? $node->textContent : undef;
+	my ($xpc, $xpath) = @_;
+	my ($node) = $xpc->findnodes($xpath);
+	return $node ? $node->textContent : undef;
 }
 
 sub produce_saml {
-    my ($type, $cfg, $in_resp_to) = @_;
+	my ($type, $cfg, $in_resp_to) = @_;
 
-    my $xml_obj = parse_xml_string(gen_tmpl($type));
-    my $xpc = initialize_saml_xpath_context($xml_obj);
-    my $msg = $xml_obj->documentElement();
+	my $xml_obj = parse_xml_string(gen_tmpl($type));
+	my $xpc = initialize_saml_xpath_context($xml_obj);
+	my $msg = $xml_obj->documentElement();
 
-    my ($ptime, $ftime) = get_time();
+	my ($ptime, $ftime) = get_time();
 
-    # Header processing
-    my $new_id = '_nginx_' . rand(1);
-    $msg->setAttribute('ID', $new_id);
-    $msg->setAttribute('IssueInstant', $ptime);
+	# Header processing
+	my $new_id = '_nginx_' . rand(1);
+	$msg->setAttribute('ID', $new_id);
+	$msg->setAttribute('IssueInstant', $ptime);
 
 
-    if (defined $in_resp_to) {
-        $msg->setAttribute('InResponseTo', $in_resp_to);
-    } else {
-        $msg->removeAttribute('InResponseTo');
-    }
+	if (defined $in_resp_to) {
+		$msg->setAttribute('InResponseTo', $in_resp_to);
+	} else {
+		$msg->removeAttribute('InResponseTo');
+	}
 
-    # Issuer processing
-    my (@issuer_element) = $xpc->findnodes('//saml:Issuer');
-    foreach my $issuer (@issuer_element) {
-        $issuer->removeChildNodes();
-        $issuer->appendText($cfg->{saml_idp_entity_id});
-    }
+	# Issuer processing
+	my (@issuer_element) = $xpc->findnodes('//saml:Issuer');
+	foreach my $issuer (@issuer_element) {
+		$issuer->removeChildNodes();
+		$issuer->appendText($cfg->{saml_idp_entity_id});
+	}
 
-    my (@signature_element) = $xpc->findnodes('//ds:Signature');
+	my (@signature_element) = $xpc->findnodes('//ds:Signature');
 
-    if ($type eq 'Response') {
-        $msg->setAttribute('Destination', $cfg->{saml_sp_acs_url});
+	if ($type eq 'Response') {
+		$msg->setAttribute('Destination', $cfg->{saml_sp_acs_url});
 
-        # Assertion processing
-        my ($assertion_element) = $xpc->findnodes('//saml:Assertion');
-        $assertion_element->setAttribute('IssueInstant', $ptime);
+		# Assertion processing
+		my ($assertion_element) = $xpc->findnodes('//saml:Assertion');
+		$assertion_element->setAttribute('IssueInstant', $ptime);
 
-        # Subject processing
-        my ($nameid_element) = $xpc->findnodes('//saml:NameID');
-        $nameid_element->setAttribute('SPNameQualifier',
-            $cfg->{saml_sp_entity_id});
+		# Subject processing
+		my ($nameid_element) = $xpc->findnodes('//saml:NameID');
+		$nameid_element->setAttribute('SPNameQualifier',
+			$cfg->{saml_sp_entity_id});
 
-        # Conditions processing
-        my ($conditions_element) = $xpc->findnodes('//saml:Conditions');
-        $conditions_element->setAttribute('NotBefore', $ptime);
-        $conditions_element->setAttribute('NotOnOrAfter', $ftime);
-        my ($audience_element) = $xpc->findnodes('//saml:Audience');
-        $audience_element->removeChildNodes();
-        $audience_element->appendText($cfg->{saml_sp_entity_id});
+		# Conditions processing
+		my ($conditions_element) = $xpc->findnodes('//saml:Conditions');
+		$conditions_element->setAttribute('NotBefore', $ptime);
+		$conditions_element->setAttribute('NotOnOrAfter', $ftime);
+		my ($audience_element) = $xpc->findnodes('//saml:Audience');
+		$audience_element->removeChildNodes();
+		$audience_element->appendText($cfg->{saml_sp_entity_id});
 
-        # AuthnStatement processing
-        my ($authn_statement_element) =
-            $xpc->findnodes('//saml:AuthnStatement');
-        $authn_statement_element->setAttribute('AuthnInstant', $ptime);
-        $authn_statement_element->setAttribute('SessionNotOnOrAfter', $ftime);
+		# AuthnStatement processing
+		my ($authn_statement_element) =
+			$xpc->findnodes('//saml:AuthnStatement');
+		$authn_statement_element->setAttribute('AuthnInstant', $ptime);
+		$authn_statement_element->setAttribute('SessionNotOnOrAfter', $ftime);
 
-        # Signature processing
-        if ($cfg->{saml_sp_want_signed_assertion} eq 'true') {
-            digest_saml($signature_element[1], true);
-            signature_saml($signature_element[1], $idp_priv, true);
-        } else {
-            $signature_element[1]->parentNode->
-                removeChild($signature_element[1]);
-        }
+		# Signature processing
+		if ($cfg->{saml_sp_want_signed_assertion} eq 'true') {
+			digest_saml($signature_element[1], true);
+			signature_saml($signature_element[1], $idp_priv, true);
+		} else {
+			$signature_element[1]->parentNode->
+				removeChild($signature_element[1]);
+		}
 
-        if ($cfg->{saml_sp_want_signed_response} eq 'true') {
-            digest_saml($signature_element[0], true);
-            signature_saml($signature_element[0], $idp_priv, true);
-        } else {
-            $signature_element[0]->parentNode->
-                removeChild($signature_element[0]);
-        }
-    } elsif ($type eq 'LogoutResponse') {
-        $msg->setAttribute('Destination', $cfg->{saml_sp_slo_url});
+		if ($cfg->{saml_sp_want_signed_response} eq 'true') {
+			digest_saml($signature_element[0], true);
+			signature_saml($signature_element[0], $idp_priv, true);
+		} else {
+			$signature_element[0]->parentNode->
+				removeChild($signature_element[0]);
+		}
+	} elsif ($type eq 'LogoutResponse') {
+		$msg->setAttribute('Destination', $cfg->{saml_sp_slo_url});
 
-        # Status processing
-        my ($status_code_element) = $xpc->findnodes('//samlp:StatusCode');
-        $status_code_element->setAttribute('Value',
-            'urn:oasis:names:tc:SAML:2.0:status:Success');
+		# Status processing
+		my ($status_code_element) = $xpc->findnodes('//samlp:StatusCode');
+		$status_code_element->setAttribute('Value',
+			'urn:oasis:names:tc:SAML:2.0:status:Success');
 
-        # Signature processing
-        if ($cfg->{saml_sp_want_signed_slo} eq 'true') {
-            digest_saml($signature_element[0], true);
-            signature_saml($signature_element[0], $idp_priv, true);
-        } else {
-            $signature_element[0]->parentNode->
-                removeChild($signature_element[0]);
-        }
-    } elsif ($type eq 'LogoutRequest') {
-        $msg->setAttribute('Destination', $cfg->{saml_sp_slo_url});
+		# Signature processing
+		if ($cfg->{saml_sp_want_signed_slo} eq 'true') {
+			digest_saml($signature_element[0], true);
+			signature_saml($signature_element[0], $idp_priv, true);
+		} else {
+			$signature_element[0]->parentNode->
+				removeChild($signature_element[0]);
+		}
+	} elsif ($type eq 'LogoutRequest') {
+		$msg->setAttribute('Destination', $cfg->{saml_sp_slo_url});
 
-        # Subject processing
-        my ($nameid_element) = $xpc->findnodes('//saml:NameID');
-        $nameid_element->setAttribute('SPNameQualifier',
-            $cfg->{saml_idp_entity_id});
+		# Subject processing
+		my ($nameid_element) = $xpc->findnodes('//saml:NameID');
+		$nameid_element->setAttribute('SPNameQualifier',
+			$cfg->{saml_idp_entity_id});
 
-        # Signature processing
-        if ($cfg->{saml_sp_want_signed_slo} eq 'true') {
-            digest_saml($signature_element[0], true);
-            signature_saml($signature_element[0], $idp_priv, true);
-        } else {
-            $signature_element[0]->parentNode->
-                removeChild($signature_element[0]);
-        }
-    } else {
-        die "Unknown SAML message type: $type";
-    }
+		# Signature processing
+		if ($cfg->{saml_sp_want_signed_slo} eq 'true') {
+			digest_saml($signature_element[0], true);
+			signature_saml($signature_element[0], $idp_priv, true);
+		} else {
+			$signature_element[0]->parentNode->
+				removeChild($signature_element[0]);
+		}
+	} else {
+		die "Unknown SAML message type: $type";
+	}
 
-    return $xml_obj;
+	return $xml_obj;
 }
 
 sub send_saml {
-    my ($xml_obj, $dst, %extra) = @_;
-    my ($r, $b64);
+	my ($xml_obj, $dst, %extra) = @_;
+	my ($r, $b64);
 
-    $dst //= $acs;
+	$dst //= $acs;
 
-    $XML::LibXML::skipXMLDeclaration = 1;
-    my $xml_str = $xml_obj->toString();
+	$XML::LibXML::skipXMLDeclaration = 1;
+	my $xml_str = $xml_obj->toString();
 
-    if (exists($extra{method}) && $extra{method} eq 'get') {
-        my $compressed_xml;
-        rawdeflate(\$xml_str => \$compressed_xml)
-            or die "rawdeflate failed: $RawDeflateError\n";
-        $b64 = encode_base64($compressed_xml, '');
-        my $url = $dst . "?SAMLResponse=" . uri_escape($b64) .
-            ($extra{relay_state} ? "&RelayState=" . $extra{relay_state} : "");
-        $r = get($url, %extra);
-    } else {
-        $b64 = encode_base64($xml_str, '');
-        my $body = "SAMLResponse=" . uri_escape($b64) .
-            ($extra{relay_state} ? "&RelayState=" . $extra{relay_state} : "");
-        $r = http_post($dst, $body, %extra);
-    }
+	if (exists($extra{method}) && $extra{method} eq 'get') {
+		my $compressed_xml;
+		rawdeflate(\$xml_str => \$compressed_xml)
+			or die "rawdeflate failed: $RawDeflateError\n";
+		$b64 = encode_base64($compressed_xml, '');
+		my $url = $dst . "?SAMLResponse=" . uri_escape($b64) .
+			($extra{relay_state} ? "&RelayState=" . $extra{relay_state} : "");
+		$r = get($url, %extra);
+	} else {
+		$b64 = encode_base64($xml_str, '');
+		my $body = "SAMLResponse=" . uri_escape($b64) .
+			($extra{relay_state} ? "&RelayState=" . $extra{relay_state} : "");
+		$r = http_post($dst, $body, %extra);
+	}
 
-    return $r;
+	return $r;
 }
 
 sub cfg_post {
-    my ($arg, $post, $host) = @_;
-    $host //= 'sp.example.com';
-    my $json;
+	my ($arg, $post, $host) = @_;
+	$host //= 'sp.example.com';
+	my $json;
 
-    if (ref $arg eq 'HASH') {
-        $json = $arg;
-    } elsif (!ref $arg) {
-        my ($key, $value) = each %{decode_json($arg)};
-        $cfg->{$key} = $value;
-        $json = {$key => $value};
-    } else {
-        die "Invalid arguments for cfg_post";
-    }
+	if (ref $arg eq 'HASH') {
+		$json = $arg;
+	} elsif (!ref $arg) {
+		my ($key, $value) = each %{decode_json($arg)};
+		$cfg->{$key} = $value;
+		$json = {$key => $value};
+	} else {
+		die "Invalid arguments for cfg_post";
+	}
 
-    for my $key (keys %$json) {
-        my $value = $json->{$key};
-        my $data = { $host => $value };
-        my $data_string = encode_json($data);
+	for my $key (keys %$json) {
+		my $value = $json->{$key};
+		my $data = { $host => $value };
+		my $data_string = encode_json($data);
 
-        if ($post) {
-            http_post("$kv/$key", $data_string);
-        } else {
-            http_patch("$kv/$key", $data_string);
-        }
-    }
+		if ($post) {
+			http_post("$kv/$key", $data_string);
+		} else {
+			http_patch("$kv/$key", $data_string);
+		}
+	}
 }
 
 sub cfg_verify {
-    my ($param, $test_name) = @_;
+	my ($param, $test_name) = @_;
 
-    my $url = "$kv/$param";
-    my $original_value = getkv($url);
+	my $url = "$kv/$param";
+	my $original_value = getkv($url);
 
-    http_patch($url, '{"sp.example.com": ""}');
-    my $r = get('/login');
-    http_patch($url, $original_value);
+	http_patch($url, '{"sp.example.com": ""}');
+	my $r = get('/login');
+	http_patch($url, $original_value);
 
-    like($r, qr/(?=.*Invalid)(?=.*$param)/s, $test_name);
+	like($r, qr/(?=.*Invalid)(?=.*$param)/s, $test_name);
 
-    return $r;
+	return $r;
 }
 
 sub http_post {
 	my ($url, $body, %extra) = @_;
 	my $len = length($body);
 
-    my $auth_token = $extra{auth_token} || '';
-    my $auth_redir = $extra{auth_redir} || '';
+	my $auth_token = $extra{auth_token} || '';
+	my $auth_redir = $extra{auth_redir} || '';
 
 	http(<<EOF);
 POST $url HTTP/1.0
@@ -1174,11 +1170,11 @@ EOF
 }
 
 sub get {
-    my ($uri, %extra) = @_;
+	my ($uri, %extra) = @_;
 
-    my $auth_token = $extra{auth_token} || '';
+	my $auth_token = $extra{auth_token} || '';
 
-    http(<<EOF);
+	http(<<EOF);
 GET $uri HTTP/1.0
 Host: sp.example.com
 Cookie: auth_token=$auth_token
@@ -1208,435 +1204,435 @@ sub api {
 }
 
 sub validate_saml_signature {
-    my ($xmlDoc, $public_key_pem) = @_;
+	my ($xmlDoc, $public_key_pem) = @_;
 
-    my $xpc = XML::LibXML::XPathContext->new($xmlDoc);
-    $xpc->registerNs('saml', 'urn:oasis:names:tc:SAML:2.0:assertion');
-    $xpc->registerNs('samlp', 'urn:oasis:names:tc:SAML:2.0:protocol');
-    $xpc->registerNs('ds', 'http://www.w3.org/2000/09/xmldsig#');
+	my $xpc = XML::LibXML::XPathContext->new($xmlDoc);
+	$xpc->registerNs('saml', 'urn:oasis:names:tc:SAML:2.0:assertion');
+	$xpc->registerNs('samlp', 'urn:oasis:names:tc:SAML:2.0:protocol');
+	$xpc->registerNs('ds', 'http://www.w3.org/2000/09/xmldsig#');
 
-    my ($signature_node) = $xpc->findnodes('//ds:Signature');
-    return 0 unless $signature_node;
+	my ($signature_node) = $xpc->findnodes('//ds:Signature');
+	return 0 unless $signature_node;
 
-    my ($signed_info_node) = $xpc->findnodes('./ds:SignedInfo',
-        $signature_node);
-    my ($signature_method_node) = $xpc->findnodes('./ds:SignatureMethod',
-        $signed_info_node);
-    my $signature_algorithm = $signature_method_node->
-        getAttribute('Algorithm');
-    
-    my $hash_alg;
-    if ($signature_algorithm eq 'http://www.w3.org/2000/09/xmldsig#rsa-sha1') {
-        $hash_alg = 'SHA1';
-    } elsif ($signature_algorithm eq 'http://www.w3.org/2001/04/xmldsig-more#rsa-sha256') {
-        $hash_alg = 'SHA256';
-    } elsif ($signature_algorithm eq 'http://www.w3.org/2001/04/xmldsig-more#rsa-sha384') {
-        $hash_alg = 'SHA384';
-    } elsif ($signature_algorithm eq 'http://www.w3.org/2001/04/xmldsig-more#rsa-sha512') {
-        $hash_alg = 'SHA512';
-    } else {
-        die "Unsupported signature algorithm: $signature_algorithm";
-    }
+	my ($signed_info_node) = $xpc->findnodes('./ds:SignedInfo',
+		$signature_node);
+	my ($signature_method_node) = $xpc->findnodes('./ds:SignatureMethod',
+		$signed_info_node);
+	my $signature_algorithm = $signature_method_node->
+		getAttribute('Algorithm');
 
-    my ($signature_value_node) = 
-        $xpc->findnodes('./ds:SignatureValue', $signature_node);
-    my $signature_value_base64 = $signature_value_node->textContent;
-    my $signature_value = decode_base64($signature_value_base64);
+	my $hash_alg;
+	if ($signature_algorithm eq 'http://www.w3.org/2000/09/xmldsig#rsa-sha1') {
+		$hash_alg = 'SHA1';
+	} elsif ($signature_algorithm eq 'http://www.w3.org/2001/04/xmldsig-more#rsa-sha256') {
+		$hash_alg = 'SHA256';
+	} elsif ($signature_algorithm eq 'http://www.w3.org/2001/04/xmldsig-more#rsa-sha384') {
+		$hash_alg = 'SHA384';
+	} elsif ($signature_algorithm eq 'http://www.w3.org/2001/04/xmldsig-more#rsa-sha512') {
+		$hash_alg = 'SHA512';
+	} else {
+		die "Unsupported signature algorithm: $signature_algorithm";
+	}
 
-    my ($reference_node) = 
-        $xpc->findnodes('./ds:Reference', $signed_info_node);
-    my $id_attr = $reference_node->getAttribute('URI');
-    $id_attr =~ s/^#//;
+	my ($signature_value_node) = 
+		$xpc->findnodes('./ds:SignatureValue', $signature_node);
+	my $signature_value_base64 = $signature_value_node->textContent;
+	my $signature_value = decode_base64($signature_value_base64);
 
-    my $signed_element =
-        $xpc->findnodes(sprintf('//*[@ID="%s"]', $id_attr))->[0];
-    my $signed_info_c14n = $signed_info_node->toStringEC14N();
+	my ($reference_node) = 
+		$xpc->findnodes('./ds:Reference', $signed_info_node);
+	my $id_attr = $reference_node->getAttribute('URI');
+	$id_attr =~ s/^#//;
 
-    $signature_node->parentNode->removeChild($signature_node);
-    my $c14n_xml = $signed_element->toStringEC14N();
+	my $signed_element =
+		$xpc->findnodes(sprintf('//*[@ID="%s"]', $id_attr))->[0];
+	my $signed_info_c14n = $signed_info_node->toStringEC14N();
 
-    my $pubkey =
-        Crypt::OpenSSL::X509->new_from_string($public_key_pem)->pubkey();
-    my $rsa_pub = Crypt::OpenSSL::RSA->new_public_key($pubkey);
-    $rsa_pub -> use_pkcs1_padding();
+	$signature_node->parentNode->removeChild($signature_node);
+	my $c14n_xml = $signed_element->toStringEC14N();
 
-    my $digest;
-    if ($hash_alg eq 'SHA1') {
-        $digest = sha1($c14n_xml);
-        $rsa_pub->use_sha1_hash();
-    } elsif ($hash_alg eq 'SHA256') {
-        $digest = sha256($c14n_xml);
-        $rsa_pub->use_sha256_hash();
-    } elsif ($hash_alg eq 'SHA384') {
-        $digest = sha384($c14n_xml);
-        $rsa_pub->use_sha384_hash();
-    } elsif ($hash_alg eq 'SHA512') {
-        $digest = sha512($c14n_xml);
-        $rsa_pub->use_sha512_hash();
-    }
+	my $pubkey =
+		Crypt::OpenSSL::X509->new_from_string($public_key_pem)->pubkey();
+	my $rsa_pub = Crypt::OpenSSL::RSA->new_public_key($pubkey);
+	$rsa_pub -> use_pkcs1_padding();
 
-    my $is_valid;
+	my $digest;
+	if ($hash_alg eq 'SHA1') {
+		$digest = sha1($c14n_xml);
+		$rsa_pub->use_sha1_hash();
+	} elsif ($hash_alg eq 'SHA256') {
+		$digest = sha256($c14n_xml);
+		$rsa_pub->use_sha256_hash();
+	} elsif ($hash_alg eq 'SHA384') {
+		$digest = sha384($c14n_xml);
+		$rsa_pub->use_sha384_hash();
+	} elsif ($hash_alg eq 'SHA512') {
+		$digest = sha512($c14n_xml);
+		$rsa_pub->use_sha512_hash();
+	}
 
-    $is_valid = $rsa_pub->verify($signed_info_c14n, $signature_value);
+	my $is_valid;
 
-    return $is_valid;
+	$is_valid = $rsa_pub->verify($signed_info_c14n, $signature_value);
+
+	return $is_valid;
 }
 
 sub verify_saml_signature {
-    my ($root, $public_key_pem) = @_;
+	my ($root, $public_key_pem) = @_;
 
-    my $signature_result = signature_saml($root, $public_key_pem);
-    my $digest_result = digest_saml($root);
+	my $signature_result = signature_saml($root, $public_key_pem);
+	my $digest_result = digest_saml($root);
 
-    return $digest_result && $signature_result;
+	return $digest_result && $signature_result;
 }
 
 sub get_hash_algorithm {
-    my ($url) = @_;
+	my ($url) = @_;
 
-    my %alg_map = (
-        'http://www.w3.org/2000/09/xmldsig#sha1' => 'SHA1',
-        'http://www.w3.org/2001/04/xmlenc#sha256' => 'SHA256',
-        'http://www.w3.org/2001/04/xmlenc#sha384' => 'SHA384',
-        'http://www.w3.org/2001/04/xmlenc#sha512' => 'SHA512',
-        'http://www.w3.org/2000/09/xmldsig#rsa-sha1' => 'SHA1',
-        'http://www.w3.org/2001/04/xmldsig-more#rsa-sha256' => 'SHA256',
-        'http://www.w3.org/2001/04/xmldsig-more#rsa-sha384' => 'SHA384',
-        'http://www.w3.org/2001/04/xmldsig-more#rsa-sha512' => 'SHA512',
-    );
+	my %alg_map = (
+		'http://www.w3.org/2000/09/xmldsig#sha1' => 'SHA1',
+		'http://www.w3.org/2001/04/xmlenc#sha256' => 'SHA256',
+		'http://www.w3.org/2001/04/xmlenc#sha384' => 'SHA384',
+		'http://www.w3.org/2001/04/xmlenc#sha512' => 'SHA512',
+		'http://www.w3.org/2000/09/xmldsig#rsa-sha1' => 'SHA1',
+		'http://www.w3.org/2001/04/xmldsig-more#rsa-sha256' => 'SHA256',
+		'http://www.w3.org/2001/04/xmldsig-more#rsa-sha384' => 'SHA384',
+		'http://www.w3.org/2001/04/xmldsig-more#rsa-sha512' => 'SHA512',
+	);
 
-    return $alg_map{$url} || die "Unsupported algorithm: $url";
+	return $alg_map{$url} || die "Unsupported algorithm: $url";
 }
 
 sub digest_saml {
-    my ($signature_node, $produce) = @_;
+	my ($signature_node, $produce) = @_;
 
-    my $xpc = XML::LibXML::XPathContext->new($signature_node);
-    $xpc->registerNs('saml', 'urn:oasis:names:tc:SAML:2.0:assertion');
-    $xpc->registerNs('samlp', 'urn:oasis:names:tc:SAML:2.0:protocol');
-    $xpc->registerNs('ds', 'http://www.w3.org/2000/09/xmldsig#');
+	my $xpc = XML::LibXML::XPathContext->new($signature_node);
+	$xpc->registerNs('saml', 'urn:oasis:names:tc:SAML:2.0:assertion');
+	$xpc->registerNs('samlp', 'urn:oasis:names:tc:SAML:2.0:protocol');
+	$xpc->registerNs('ds', 'http://www.w3.org/2000/09/xmldsig#');
 
-    my $parent_node = $signature_node->parentNode;
-    
-    my ($signed_info_node) =
-        $xpc->findnodes('./ds:SignedInfo', $signature_node)->[0];
-    my ($reference_node) =
-        $xpc->findnodes('./ds:Reference', $signed_info_node)->[0];
+	my $parent_node = $signature_node->parentNode;
+	
+	my ($signed_info_node) =
+		$xpc->findnodes('./ds:SignedInfo', $signature_node)->[0];
+	my ($reference_node) =
+		$xpc->findnodes('./ds:Reference', $signed_info_node)->[0];
 
-    my $id = $parent_node->getAttribute('ID');
-    $reference_node->setAttribute('URI', "#$id");
+	my $id = $parent_node->getAttribute('ID');
+	$reference_node->setAttribute('URI', "#$id");
 
-    my @transforms =
-        $xpc->findnodes('./ds:Transforms/ds:Transform', $reference_node);
-    my @transform_algs = map { $_->getAttribute('Algorithm') } @transforms;
+	my @transforms =
+		$xpc->findnodes('./ds:Transforms/ds:Transform', $reference_node);
+	my @transform_algs = map { $_->getAttribute('Algorithm') } @transforms;
 
-    my $with_comments = ($transform_algs[1] =~ /WithComments/);
+	my $with_comments = ($transform_algs[1] =~ /WithComments/);
 
-    my $digest_method =
-        $xpc->findnodes('./ds:DigestMethod', $reference_node)->[0];
-    my $alg = $digest_method->getAttribute('Algorithm');
+	my $digest_method =
+		$xpc->findnodes('./ds:DigestMethod', $reference_node)->[0];
+	my $alg = $digest_method->getAttribute('Algorithm');
 
-    my $hash = get_hash_algorithm($alg);
+	my $hash = get_hash_algorithm($alg);
 
-    my $next_sibling = $signature_node->nextSibling();
-    $signature_node->unbindNode();
-    my $parent_node_c14n = $parent_node->toStringEC14N($with_comments);
-    $parent_node->insertBefore($signature_node, $next_sibling);
+	my $next_sibling = $signature_node->nextSibling();
+	$signature_node->unbindNode();
+	my $parent_node_c14n = $parent_node->toStringEC14N($with_comments);
+	$parent_node->insertBefore($signature_node, $next_sibling);
 
-    my %hash_func_map = (
-        'SHA1' => sub { return sha1($_[0]); },
-        'SHA256' => sub { return sha256($_[0]); },
-        'SHA384' => sub { return sha384($_[0]); },
-        'SHA512' => sub { return sha512($_[0]); },
-    );
+	my %hash_func_map = (
+		'SHA1' => sub { return sha1($_[0]); },
+		'SHA256' => sub { return sha256($_[0]); },
+		'SHA384' => sub { return sha384($_[0]); },
+		'SHA512' => sub { return sha512($_[0]); },
+	);
 
-    my $digest;
-    if (exists $hash_func_map{$hash}) {
-        $digest = $hash_func_map{$hash}->($parent_node_c14n);
-    } else {
-        die "Unsupported hash algorithm: $hash";
-    }
+	my $digest;
+	if (exists $hash_func_map{$hash}) {
+		$digest = $hash_func_map{$hash}->($parent_node_c14n);
+	} else {
+		die "Unsupported hash algorithm: $hash";
+	}
 
-    my $b64_digest = encode_base64($digest, '');
+	my $b64_digest = encode_base64($digest, '');
 
-    my ($digest_value_node) =
-        $xpc->findnodes('./ds:DigestValue', $reference_node);
+	my ($digest_value_node) =
+		$xpc->findnodes('./ds:DigestValue', $reference_node);
 
-    if ($produce) {
-        $digest_value_node->removeChildNodes();
-        $digest_value_node->appendText($b64_digest);
-        return;
-    }
+	if ($produce) {
+		$digest_value_node->removeChildNodes();
+		$digest_value_node->appendText($b64_digest);
+		return;
+	}
 
-    my $expected_digest = $digest_value_node->textContent();
+	my $expected_digest = $digest_value_node->textContent();
 
-    return $expected_digest eq $b64_digest;
+	return $expected_digest eq $b64_digest;
 }
 
 sub signature_saml {
-    my ($signature_node, $key_data, $produce) = @_;
+	my ($signature_node, $key_data, $produce) = @_;
 
-    my $xpc = XML::LibXML::XPathContext->new($signature_node);
-    $xpc->registerNs('saml', 'urn:oasis:names:tc:SAML:2.0:assertion');
-    $xpc->registerNs('samlp', 'urn:oasis:names:tc:SAML:2.0:protocol');
-    $xpc->registerNs('ds', 'http://www.w3.org/2000/09/xmldsig#');
+	my $xpc = XML::LibXML::XPathContext->new($signature_node);
+	$xpc->registerNs('saml', 'urn:oasis:names:tc:SAML:2.0:assertion');
+	$xpc->registerNs('samlp', 'urn:oasis:names:tc:SAML:2.0:protocol');
+	$xpc->registerNs('ds', 'http://www.w3.org/2000/09/xmldsig#');
 
-    my ($signature_value_node) =
-        $xpc->findnodes('./ds:SignatureValue', $signature_node);
-    my $signature_value_base64 = $signature_value_node->textContent;
-    my $signature_value = decode_base64($signature_value_base64);
+	my ($signature_value_node) =
+		$xpc->findnodes('./ds:SignatureValue', $signature_node);
+	my $signature_value_base64 = $signature_value_node->textContent;
+	my $signature_value = decode_base64($signature_value_base64);
 
-    my ($signed_info_node) =
-        $xpc->findnodes('./ds:SignedInfo', $signature_node);
-    my ($signature_method_node) =
-        $xpc->findnodes('./ds:SignatureMethod', $signed_info_node);
-    my $alg = $signature_method_node->getAttribute('Algorithm');
+	my ($signed_info_node) =
+		$xpc->findnodes('./ds:SignedInfo', $signature_node);
+	my ($signature_method_node) =
+		$xpc->findnodes('./ds:SignatureMethod', $signed_info_node);
+	my $alg = $signature_method_node->getAttribute('Algorithm');
 
-    my $hash_alg = get_hash_algorithm($alg);
+	my $hash_alg = get_hash_algorithm($alg);
 
-    my $canonicalization_method = $xpc->findnodes('./ds:CanonicalizationMethod',
-        $signed_info_node)->[0]->getAttribute('Algorithm');
-    my $with_comments = ($canonicalization_method =~ /WithComments/);
+	my $canonicalization_method = $xpc->findnodes('./ds:CanonicalizationMethod',
+		$signed_info_node)->[0]->getAttribute('Algorithm');
+	my $with_comments = ($canonicalization_method =~ /WithComments/);
 
-    my $signed_info_c14n = $signed_info_node->toStringEC14N($with_comments);
+	my $signed_info_c14n = $signed_info_node->toStringEC14N($with_comments);
 
-    my $rsa = $produce ? Crypt::OpenSSL::RSA->new_private_key($key_data)
-        : Crypt::OpenSSL::RSA->new_public_key(
-            Crypt::OpenSSL::X509->new_from_string($key_data)->pubkey()
-        );
+	my $rsa = $produce ? Crypt::OpenSSL::RSA->new_private_key($key_data)
+		: Crypt::OpenSSL::RSA->new_public_key(
+			Crypt::OpenSSL::X509->new_from_string($key_data)->pubkey()
+		);
 
-    $rsa->use_pkcs1_padding();
+	$rsa->use_pkcs1_padding();
 
-    my %hash_func_map = (
-        'SHA1' => sub { $_[0]->use_sha1_hash(); },
-        'SHA256' => sub { $_[0]->use_sha256_hash(); },
-        'SHA384' => sub { $_[0]->use_sha384_hash(); },
-        'SHA512' => sub { $_[0]->use_sha512_hash(); },
-    );
+	my %hash_func_map = (
+		'SHA1' => sub { $_[0]->use_sha1_hash(); },
+		'SHA256' => sub { $_[0]->use_sha256_hash(); },
+		'SHA384' => sub { $_[0]->use_sha384_hash(); },
+		'SHA512' => sub { $_[0]->use_sha512_hash(); },
+	);
 
-    if (exists $hash_func_map{$hash_alg}) {
-        $hash_func_map{$hash_alg}->($rsa);
-    } else {
-        die "Unsupported hash algorithm: $hash_alg";
-    }
+	if (exists $hash_func_map{$hash_alg}) {
+		$hash_func_map{$hash_alg}->($rsa);
+	} else {
+		die "Unsupported hash algorithm: $hash_alg";
+	}
 
-    my $result;
-    if ($produce) {
-        my $signature_value = $rsa->sign($signed_info_c14n);
-        my $b64_signature_value = encode_base64($signature_value, '');
+	my $result;
+	if ($produce) {
+		my $signature_value = $rsa->sign($signed_info_c14n);
+		my $b64_signature_value = encode_base64($signature_value, '');
 
-        my ($signature_value_node) =
-            $xpc->findnodes('./ds:SignatureValue', $signature_node);
-        $signature_value_node->removeChildNodes();
-        $signature_value_node->appendText($b64_signature_value);
+		my ($signature_value_node) =
+			$xpc->findnodes('./ds:SignatureValue', $signature_node);
+		$signature_value_node->removeChildNodes();
+		$signature_value_node->appendText($b64_signature_value);
 
-        $result = $signature_value_node;
-    } else {
-        $result = $rsa->verify($signed_info_c14n, $signature_value);
-    }
+		$result = $signature_value_node;
+	} else {
+		$result = $rsa->verify($signed_info_c14n, $signature_value);
+	}
 
-    return $result;
+	return $result;
 
 }
 
 sub get_time {
-    my $now = DateTime->now;
-    my $past_time = $now->clone->subtract(minutes => 5)->strftime('%FT%TZ');
-    my $future_time = $now->add(minutes => 5)->strftime('%FT%TZ');
+	my $now = DateTime->now;
+	my $past_time = $now->clone->subtract(minutes => 5)->strftime('%FT%TZ');
+	my $future_time = $now->add(minutes => 5)->strftime('%FT%TZ');
 
-    return ($past_time, $future_time);
+	return ($past_time, $future_time);
 }
 
 sub is_issue_instant_valid {
-    my $issue_instant = shift;
+	my $issue_instant = shift;
 
-    if ($issue_instant =~ /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d+)?Z$/) {
-        my ($year, $month, $day, $hour, $minute, $second) = ($1, $2, $3, $4, $5, $6);
+	if ($issue_instant =~ /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d+)?Z$/) {
+		my ($year, $month, $day, $hour, $minute, $second) = ($1, $2, $3, $4, $5, $6);
 
-        my $issue_instant_dt = DateTime->new(
-            year   => $year,
-            month  => $month,
-            day    => $day,
-            hour   => $hour,
-            minute => $minute,
-            second => $second,
-            time_zone => 'UTC',
-        );
+		my $issue_instant_dt = DateTime->new(
+			year   => $year,
+			month  => $month,
+			day    => $day,
+			hour   => $hour,
+			minute => $minute,
+			second => $second,
+			time_zone => 'UTC',
+		);
 
-        my $current_time = DateTime->now(time_zone => 'UTC');
-        my $min_time = $current_time->clone->subtract(seconds => 5);
-        my $max_time = $current_time->clone->add(seconds => 5);
+		my $current_time = DateTime->now(time_zone => 'UTC');
+		my $min_time = $current_time->clone->subtract(seconds => 5);
+		my $max_time = $current_time->clone->add(seconds => 5);
 
-        return ($issue_instant_dt >= $min_time) && ($issue_instant_dt <= $max_time);
-    }
+		return ($issue_instant_dt >= $min_time) && ($issue_instant_dt <= $max_time);
+	}
 
-    return 0;
+	return 0;
 }
 
 sub read_file {
-    my ($files) = @_;
-    my $content = '';
+	my ($files) = @_;
+	my $content = '';
 
-    $files = [$files] unless ref $files eq 'ARRAY';
+	$files = [$files] unless ref $files eq 'ARRAY';
 
-    for my $file (@$files) {
-        local $/;
-        open my $fh, '<', $file or die "Failed to open $file: $!";
-        my $c = <$fh>;
-        close $fh;
-        $content .= $c;
-    }
+	for my $file (@$files) {
+		local $/;
+		open my $fh, '<', $file or die "Failed to open $file: $!";
+		my $c = <$fh>;
+		close $fh;
+		$content .= $c;
+	}
 
-    return $content;
+	return $content;
 }
 
 sub gen_tmpl {
-    my ($type) = @_;
+	my ($type) = @_;
 
-    my $signature = <<'END_XML';
+	my $signature = <<'END_XML';
 <ds:Signature xmlns:ds="http://www.w3.org/2000/09/xmldsig#">
-    <ds:SignedInfo>
-        <ds:CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#" />
-        <ds:SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256" />
-        <ds:Reference URI="#${id}">
-            <ds:Transforms>
-                <ds:Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature" />
-                <ds:Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#" />
-            </ds:Transforms>
-            <ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256" />
-            <ds:DigestValue></ds:DigestValue>
-        </ds:Reference>
-    </ds:SignedInfo>
-    <ds:SignatureValue></ds:SignatureValue>
+	<ds:SignedInfo>
+		<ds:CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#" />
+		<ds:SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256" />
+		<ds:Reference URI="#${id}">
+			<ds:Transforms>
+				<ds:Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature" />
+				<ds:Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#" />
+			</ds:Transforms>
+			<ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256" />
+			<ds:DigestValue></ds:DigestValue>
+		</ds:Reference>
+	</ds:SignedInfo>
+	<ds:SignatureValue></ds:SignatureValue>
 </ds:Signature>
 END_XML
 
-    my $response = <<"END_XML";
+	my $response = <<END_XML;
 <samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol"
-                xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion"
-                ID=""
-                Version="2.0"
-                IssueInstant=""
-                Destination=""
-                InResponseTo=""
-                >
-    <saml:Issuer></saml:Issuer>
-    $signature
-    <samlp:Status>
-        <samlp:StatusCode Value="urn:oasis:names:tc:SAML:2.0:status:Success" />
-    </samlp:Status>
-    <saml:Assertion xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-                    xmlns:xs="http://www.w3.org/2001/XMLSchema"
-                    ID="_nginx_assertion"
-                    Version="2.0"
-                    IssueInstant=""
-                    >
-        <saml:Issuer></saml:Issuer>
-        $signature
-        <saml:Subject>
-            <saml:NameID SPNameQualifier=""
-                        Format="urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified"
-                        >user1</saml:NameID>
-            <saml:SubjectConfirmation Method="urn:oasis:names:tc:SAML:2.0:cm:bearer">
-                <saml:SubjectConfirmationData NotOnOrAfter=""
-                                            Recipient=""
-                                            InResponseTo=""
-                                            />
-            </saml:SubjectConfirmation>
-        </saml:Subject>
-        <saml:Conditions NotBefore=""
-                        NotOnOrAfter=""
-                        >
-            <saml:AudienceRestriction>
-                <saml:Audience></saml:Audience>
-            </saml:AudienceRestriction>
-        </saml:Conditions>
-        <saml:AuthnStatement AuthnInstant=""
-                            SessionNotOnOrAfter=""
-                            SessionIndex="_nginx_sessionindex_"
-                            >
-            <saml:AuthnContext>
-                <saml:AuthnContextClassRef>urn:oasis:names:tc:SAML:2.0:ac:classes:Password</saml:AuthnContextClassRef>
-            </saml:AuthnContext>
-        </saml:AuthnStatement>
-        <saml:AttributeStatement>
-            <saml:Attribute Name="uid"
-                            NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic"
-                            >
-                <saml:AttributeValue xsi:type="xs:string">1</saml:AttributeValue>
-            </saml:Attribute>
-            <saml:Attribute Name="memberOf"
-                            NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic"
-                            >
-                <saml:AttributeValue xsi:type="xs:string">group1, admins, students</saml:AttributeValue>
-            </saml:Attribute>
-            <saml:Attribute Name="email"
-                            NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic"
-                            >
-                <saml:AttributeValue xsi:type="xs:string">user1</saml:AttributeValue>
-            </saml:Attribute>
-            <saml:Attribute Name="name"
-                            NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic"
-                            >
-                <saml:AttributeValue xsi:type="xs:string">Alan Alda</saml:AttributeValue>
-            </saml:Attribute>
-            <saml:Attribute Name="telephoneNumber"
-                            NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic"
-                            >
-                <saml:AttributeValue xsi:type="xs:string">+31(0)12345678</saml:AttributeValue>
-            </saml:Attribute>
-            <saml:Attribute Name="http://schemas.example.com/identity/claims/foo"
-                            >
-                <saml:AttributeValue xsi:type="xs:string">bar</saml:AttributeValue>
-            </saml:Attribute>
-        </saml:AttributeStatement>
-    </saml:Assertion>
+				xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion"
+				ID=""
+				Version="2.0"
+				IssueInstant=""
+				Destination=""
+				InResponseTo=""
+				>
+	<saml:Issuer></saml:Issuer>
+	$signature
+	<samlp:Status>
+		<samlp:StatusCode Value="urn:oasis:names:tc:SAML:2.0:status:Success" />
+	</samlp:Status>
+	<saml:Assertion xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+					xmlns:xs="http://www.w3.org/2001/XMLSchema"
+					ID="_nginx_assertion"
+					Version="2.0"
+					IssueInstant=""
+					>
+		<saml:Issuer></saml:Issuer>
+		$signature
+		<saml:Subject>
+			<saml:NameID SPNameQualifier=""
+						Format="urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified"
+						>user1</saml:NameID>
+			<saml:SubjectConfirmation Method="urn:oasis:names:tc:SAML:2.0:cm:bearer">
+				<saml:SubjectConfirmationData NotOnOrAfter=""
+											Recipient=""
+											InResponseTo=""
+											/>
+			</saml:SubjectConfirmation>
+		</saml:Subject>
+		<saml:Conditions NotBefore=""
+						NotOnOrAfter=""
+						>
+			<saml:AudienceRestriction>
+				<saml:Audience></saml:Audience>
+			</saml:AudienceRestriction>
+		</saml:Conditions>
+		<saml:AuthnStatement AuthnInstant=""
+							SessionNotOnOrAfter=""
+							SessionIndex="_nginx_sessionindex_"
+							>
+			<saml:AuthnContext>
+				<saml:AuthnContextClassRef>urn:oasis:names:tc:SAML:2.0:ac:classes:Password</saml:AuthnContextClassRef>
+			</saml:AuthnContext>
+		</saml:AuthnStatement>
+		<saml:AttributeStatement>
+			<saml:Attribute Name="uid"
+							NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic"
+							>
+				<saml:AttributeValue xsi:type="xs:string">1</saml:AttributeValue>
+			</saml:Attribute>
+			<saml:Attribute Name="memberOf"
+							NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic"
+							>
+				<saml:AttributeValue xsi:type="xs:string">group1, admins, students</saml:AttributeValue>
+			</saml:Attribute>
+			<saml:Attribute Name="email"
+							NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic"
+							>
+				<saml:AttributeValue xsi:type="xs:string">user1</saml:AttributeValue>
+			</saml:Attribute>
+			<saml:Attribute Name="name"
+							NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic"
+							>
+				<saml:AttributeValue xsi:type="xs:string">Alan Alda</saml:AttributeValue>
+			</saml:Attribute>
+			<saml:Attribute Name="telephoneNumber"
+							NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic"
+							>
+				<saml:AttributeValue xsi:type="xs:string">+31(0)12345678</saml:AttributeValue>
+			</saml:Attribute>
+			<saml:Attribute Name="http://schemas.example.com/identity/claims/foo"
+							>
+				<saml:AttributeValue xsi:type="xs:string">bar</saml:AttributeValue>
+			</saml:Attribute>
+		</saml:AttributeStatement>
+	</saml:Assertion>
 </samlp:Response>
 END_XML
 
-    my $logout_request = <<"END_XML";
+	my $logout_request = <<END_XML;
 <samlp:LogoutRequest xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol"
-                     xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion"
-                     ID=""
-                     Version="2.0"
-                     IssueInstant=""
-                     Destination=""
-                     NotOnOrAfter=""
-                     >
-    <saml:Issuer></saml:Issuer>
-    $signature
-    <saml:NameID SPNameQualifier=""
-                 Format="urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress"
-                 >user1</saml:NameID>
-    <samlp:SessionIndex>_nginx_sessionindex</samlp:SessionIndex>
+					 xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion"
+					 ID=""
+					 Version="2.0"
+					 IssueInstant=""
+					 Destination=""
+					 NotOnOrAfter=""
+					 >
+	<saml:Issuer></saml:Issuer>
+	$signature
+	<saml:NameID SPNameQualifier=""
+				 Format="urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress"
+				 >user1</saml:NameID>
+	<samlp:SessionIndex>_nginx_sessionindex</samlp:SessionIndex>
 </samlp:LogoutRequest>
 END_XML
 
-my $logout_response = <<"END_XML";
+my $logout_response = <<END_XML;
 <samlp:LogoutResponse xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol"
-                      Destination=""
-                      ID=""
-                      InResponseTo=""
-                      IssueInstant=""
-                      Version="2.0"
-                      >
-    <saml:Issuer xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion"></saml:Issuer>
-    $signature
-    <samlp:Status>
-        <samlp:StatusCode Value="urn:oasis:names:tc:SAML:2.0:status:Success" />
-    </samlp:Status>
+					  Destination=""
+					  ID=""
+					  InResponseTo=""
+					  IssueInstant=""
+					  Version="2.0"
+					  >
+	<saml:Issuer xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion"></saml:Issuer>
+	$signature
+	<samlp:Status>
+		<samlp:StatusCode Value="urn:oasis:names:tc:SAML:2.0:status:Success" />
+	</samlp:Status>
 </samlp:LogoutResponse>
 END_XML
-    
-    if ($type eq 'Response') {
-        return $response;
-    } elsif ($type eq 'LogoutRequest') {
-        return $logout_request;
-    } elsif ($type eq 'LogoutResponse') {
-        return $logout_response;
-    } else {
-        die "unknown type: $type";
-    }
+	
+	if ($type eq 'Response') {
+		return $response;
+	} elsif ($type eq 'LogoutRequest') {
+		return $logout_request;
+	} elsif ($type eq 'LogoutResponse') {
+		return $logout_response;
+	} else {
+		die "unknown type: $type";
+	}
 }
 
 ###############################################################################
