@@ -41,7 +41,7 @@ select STDOUT; $| = 1;
 eval { require JSON::PP; };
 plan(skip_all => "JSON::PP not installed") if $@;
 
-my $t = Test::Nginx->new()->has(qw/http rewrite proxy gzip api keyval/)
+my $t = Test::Nginx->new()->has(qw/http rewrite proxy gzip/)
 	->write_file_expand('nginx.conf', <<'EOF');
 
 %%TEST_GLOBALS%%
