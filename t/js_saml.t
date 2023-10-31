@@ -440,7 +440,7 @@ like(get('/', auth_token => get_auth_token($r)), qr/Welcome user1/,
 
 cfg_post({saml_idp_verification_certificate => "$d/sp.example.com.key"});
 $r = init_sso($cfg);
-like($r, qr/500.*Error verifying.*signature.*error:Type=X509_PUBKEY/s,
+like($r, qr/500.*Error verifying Response message signature/s,
 	'wrong cert type');
 
 cfg_post({saml_idp_verification_certificate => "not_found"});
