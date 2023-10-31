@@ -1,0 +1,58 @@
+name: CI for NJS-based SAML Implementation
+run-name: ${{ github.actor }} is triggering pipeline
+on: [push]
+
+jobs:
+  test-njs-saml:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+  
+      - name: Install prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y apt-transport-https lsb-release apt-utils ubuntu-keyring gnupg2 \
+          ca-certificates wget mercurial
+
+      - name: Prepare keys and certificates
+        run: |
+          sudo mkdir /etc/ssl/nginx
+          echo '${{ secrets.NGINX_REPO_CRT }}' | sudo tee /etc/ssl/nginx/nginx-repo.crt > /dev/null
+          echo '${{ secrets.NGINX_REPO_KEY }}' | sudo tee /etc/ssl/nginx/nginx-repo.key > /dev/null
+
+      - name: Configure NGINX Plus repository
+        run: |
+          wget --certificate=/etc/ssl/nginx/nginx-repo.crt --private-key=/etc/ssl/nginx/nginx-repo.key \
+          https://pkgs-test.nginx.com/keys/nginx_test_signing.key
+          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/nginx_test_signing.gpg \
+          --import nginx_test_signing.key
+          echo "Acquire::https::pkgs-test.nginx.com::Verify-Peer \"true\";" | sudo tee -a /etc/apt/apt.conf.d/90nginx
+          echo "Acquire::https::pkgs-test.nginx.com::Verify-Host \"true\";" | sudo tee -a /etc/apt/apt.conf.d/90nginx
+          echo "Acquire::https::pkgs-test.nginx.com::SslCert     \"/etc/ssl/nginx/nginx-repo.crt\";" \
+          | sudo tee -a /etc/apt/apt.conf.d/90nginx
+          echo "Acquire::https::pkgs-test.nginx.com::SslKey      \"/etc/ssl/nginx/nginx-repo.key\";" \
+          | sudo tee -a /etc/apt/apt.conf.d/90nginx
+          printf "deb [signed-by=/usr/share/keyrings/nginx_test_signing.gpg] \
+          https://pkgs-test.nginx.com/nightly/ubuntu $(lsb_release -cs) nginx-plus\n" \
+          | sudo tee /etc/apt/sources.list.d/nginx-plus.list
+
+      - name: Install NGINX Plus
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nginx-plus nginx-plus-module-njs
+
+      - name: Install required Perl modules
+        run: |
+          sudo apt-get install -y perl libxml-libxml-perl libdatetime-perl libcrypt-openssl-x509-perl \
+          libcrypt-openssl-rsa-perl
+
+      - name: Checkout nginx-test
+        run: |
+          hg clone http://hg.nginx.org/nginx-tests/
+
+      - name: Run tests
+        working-directory: t
+        run: |
+          PERL5LIB=../nginx-tests/lib TEST_NGINX_BINARY=/usr/sbin/nginx TEST_NGINX_VERBOSE=1 \
+          TEST_NGINX_GLOBALS="load_module /etc/nginx/modules/ngx_http_js_module-debug.so;" prove -v .
