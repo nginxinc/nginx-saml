@@ -133,6 +133,9 @@ http {
     keyval_zone zone=saml_cookie_flags:1M state=%%TESTDIR%%/saml_cookie_flags.json;
     keyval $host $saml_cookie_flags zone=saml_cookie_flags;
 
+	keyval_zone zone=saml_allowed_clock_skew:1M state=%%TESTDIR%%/saml_allowed_clock_skew.json;
+    keyval $host $saml_allowed_clock_skew zone=saml_allowed_clock_skew;
+
     keyval_zone zone=redirect_base:1M state=%%TESTDIR%%/redirect_base.json;
     keyval $host $redirect_base zone=redirect_base;
 
@@ -282,7 +285,7 @@ my $sp_pub = $t->read_file('sp.example.com.crt');
 my $js_filename = 'saml_sp.js';
 $t->write_file($js_filename, read_file("../$js_filename"));
 
-$t->try_run('no njs available')->plan(128);
+$t->try_run('no njs available')->plan(132);
 
 my $api_version = (sort { $a <=> $b } @{ api() })[-1];
 my $kv = "/api/$api_version/http/keyvals";
@@ -525,7 +528,7 @@ like($r, qr/HTTP\/1\.1 500.*Unsupported SAML Version/s,
 
 my ($ptime, $ftime) = get_time();
 $r = modify_saml_obj($xml_obj, '/samlp:Response', 'IssueInstant', $ftime);
-like($r, qr/HTTP\/1\.1 500.*IssueInstant.*in the future/s,
+like($r, qr/HTTP\/1\.1 500.*Assertion is not yet valid/s,
 	'response future issue instant');
 
 $r = modify_saml_obj($xml_obj, '/samlp:Response', 'IssueInstant');
@@ -551,7 +554,7 @@ $r = modify_saml_obj($xml_obj, '//saml:Assertion', 'ID');
 like($r, qr/HTTP\/1\.1 500.*ID.*is missing/s, 'assertion no id');
 
 $r = modify_saml_obj($xml_obj, '//saml:Assertion', 'IssueInstant', $ftime);
-like($r, qr/HTTP\/1\.1 500.*IssueInstant.*in the future/s,
+like($r, qr/HTTP\/1\.1 500.*Assertion is not yet valid/s,
 	'assertion future issue instant');
 
 $r = modify_saml_obj($xml_obj, '//saml:NameID');
@@ -568,7 +571,7 @@ like($r, qr/HTTP\/1\.1 500.*SubjectConfirmationData.*is missing/s,
 
 $r = modify_saml_obj($xml_obj, '//saml:SubjectConfirmationData',
 	'NotOnOrAfter', $ptime);
-like($r, qr/HTTP\/1\.1 500.*Subject has expired/s,
+like($r, qr/HTTP\/1\.1 500.*Assertion has expired/s,
 	'assertion subject has expired');
 
 $r = modify_saml_obj($xml_obj, '//saml:Conditions');
@@ -596,7 +599,7 @@ like(get('/', auth_token => get_auth_token($r)), qr/Welcome user1/,
 
 $r = modify_saml_obj($xml_obj, '//saml:AuthnStatement', 'SessionNotOnOrAfter',
 	$ptime);
-like($r, qr/HTTP\/1\.1 500.*Assertion Session has expired/s,
+like($r, qr/HTTP\/1\.1 500.*Assertion has expired/s,
 	'assertion session has expired');
 
 $r = modify_saml_obj($xml_obj, '//saml:AuthnStatement', 'SessionIndex');
@@ -610,6 +613,26 @@ like($r, qr/HTTP\/1\.1 500.*AuthnContextClassRef.*is missing/s,
 $r = modify_saml_obj($xml_obj, '//saml:AttributeStatement');
 like(get('/', auth_token => get_auth_token($r)), qr/Welcome user1/,
 	'assertion no attribute statement');
+
+$r = modify_saml_obj($xml_obj, '//saml:Conditions', 'NotBefore', $ftime);
+like($r, qr/HTTP\/1\.1 500.*Allowed clock skew is 120 seconds/s,
+	'Allowed clock skew default 120');
+
+cfg_post({saml_allowed_clock_skew => '60'}, 1);
+
+$r = modify_saml_obj($xml_obj, '//saml:Conditions', 'NotBefore', $ftime);
+like($r, qr/HTTP\/1\.1 500.*Allowed clock skew is 60 seconds/s,
+	'Allowed Clock scew 60');
+
+cfg_post({saml_allowed_clock_skew => '360'});
+
+$r = modify_saml_obj($xml_obj, '//saml:Conditions', 'NotBefore', $ftime);
+like(get('/', auth_token => get_auth_token($r)), qr/Welcome user1/,
+	'Allowed Clock scew NotBefore');
+
+$r = modify_saml_obj($xml_obj, '//saml:Conditions', 'NotOnOrAfter', $ptime);
+like(get('/', auth_token => get_auth_token($r)), qr/Welcome user1/,
+	'Allowed Clock scew NotOnOrAfter');
 
 ### SP-initiated logout
 
