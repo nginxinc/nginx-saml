@@ -190,7 +190,10 @@ The Assertion is validated using the same approach as the Response, with the exc
 The `Subject` element specifies the principle that is the subject of the statements in the assertion. It must contain a `NameID` element, which represents the authenticated user. The `NameID` is a unique identifier for the user within the context of the Identity Provider, while the `NameID Format` describes the format or namespace of the `NameID`. When processing the Subject, NGINX Plus parses both the NameID and the NameID Format, which are then stored in the `$saml_name_id` and `$saml_name_id_format` variables, respectively.
 
 ### Conditions
-The `Conditions` element defines the conditions under which the SAML Assertion is considered valid. It is a mandatory element, and an assertion without it will be deemed invalid. NGINX Plus checks the values of the `NotBefore` and `NotOnOrAfter` attributes to ensure the assertion is being used within the specified time window. It does not account for any time difference between itself and the Identity Provider nor does it add any buffer to these time values.
+The `Conditions` element defines the conditions under which the SAML Assertion is considered valid. It is a mandatory element, and an assertion without it will be deemed invalid. NGINX Plus checks the values of the `NotBefore` and `NotOnOrAfter` attributes to ensure the assertion is being used within the specified time window.
+
+NGINX Plus accommodates potential clock discrepancies between the Service Provider and the Identity Provider with the `$saml_allowed_clock_skew` variable. This variable defines an acceptable range of time skew in seconds, allowing NGINX Plus to adjust the validation window for slight time differences between systems.
+If `$saml_allowed_clock_skew` is not defined, NGINX Plus applies a default value of `120` seconds.
 
 ### Audience
 If the `AudienceRestriction` element is present, it restricts the assertion's applicability to specific intended audiences, or Service Providers, to which it may be sent. NGINX Plus verifies that the Service Provider's Entity ID, specified by the `$saml_sp_entity_id` variable, is listed as an acceptable audience for the assertion. This step ensures that the assertion is intended for the correct Service Provider and prevents unauthorized access to resources.
@@ -389,6 +392,7 @@ Manual configuration involves reviewing the following files so that they match y
   - Modify all of the `map…$saml_idp_` blocks to match your IdP configuration
   - Modify the URI defined in `map…$saml_logout_redirect` to specify an unprotected resource to be displayed after requesting the `/logout` location
   - If NGINX Plus is deployed behind another proxy or load balancer, modify the `map…$redirect_base` and `map…$proto` blocks to define how to obtain the original protocol and port number.
+  - If you need to adjust the default allowable clock skew from the standard 120 seconds to accommodate time differences between the SP and IdP, add the `map…$saml_sp_clock_skew` block and specify the desired value in seconds.
 
 - **frontend.conf** - this is the reverse proxy configuration
   - Modify the upstream group to match your backend site or app

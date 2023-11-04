@@ -75,11 +75,13 @@ async function handleSAMLMessage(messageType, r) {
                 node = root.Assertion.Subject.NameID ? root.Assertion.Subject.NameID
                                                      : root.Assertion.Subject.EncryptedID || null;
                 nameID = await extractNameID(node, opt.decryptKey);
-                checkSubjectConfirmation(root.Assertion.Subject.SubjectConfirmation);
+                checkSubjectConfirmation(root.Assertion.Subject.SubjectConfirmation,
+                                         opt.allowedClockSkew);
 
                 /* Parse the Asserttion Conditions and Authentication Statement */
-                checkConditions(root.Assertion.Conditions, opt.spEntityID);
-                const authnStatement = parseAuthnStatement(root.Assertion.AuthnStatement);
+                checkConditions(root.Assertion.Conditions, opt.spEntityID, opt.allowedClockSkew);
+                const authnStatement = parseAuthnStatement(root.Assertion.AuthnStatement, null,
+                                                           opt.allowedClockSkew);
 
                 /* Set session cookie and save SAML variables and attributes */
                 const sessionCookie = setSessionCookie(r);
@@ -168,16 +170,13 @@ function processSAMLMessageHeader(r, opt, root) {
     }
 
     /* Check the date and time when the SAML message was issued (Required) */
-    const currentTime = new Date();
     const issueInstant = root.$attr$IssueInstant;
     if (!issueInstant) {
         throw Error("IssueInstant attribute is missing in the SAML message");
     }
 
     const issueInstantDate = new Date(issueInstant);
-    if (issueInstantDate > currentTime) {
-        throw Error(`IssueInstant is in the future. Check clock skew of SP and IdP`);
-    }
+    checkTimeValidity(issueInstantDate, null, opt.allowedClockSkew);
 
     /* Check SAML message ID (Required)  */
     const id = root.$attr$ID;
@@ -294,9 +293,10 @@ async function extractNameID(root, keyData) {
  * "urn:oasis:names:tc:SAML:2.0:cm:bearer".
  * 
  * @param {Object} root - A SAML SubjectConfirmation XMLDoc object returned by xml.parse().
+ * @param {number} [allowedClockSkew] - The allowed clock skew in seconds.
  * @throws {Error} - If the SubjectConfirmationData is missing or the subject has expired.
  */
-function checkSubjectConfirmation(root) {
+function checkSubjectConfirmation(root, allowedClockSkew) {
     if (!root) {
         return;
     }
@@ -308,12 +308,8 @@ function checkSubjectConfirmation(root) {
                             'SubjectConfirmation');
         }
 
-        const now = new Date();
         const notOnOrAfter = root.$attr$NotOnOrAfter ? new Date(root.$attr$NotOnOrAfter) : null;
-        if (notOnOrAfter && notOnOrAfter < now) {
-            throw new Error(`The Subject has expired. Current time is ${now} ` +
-                            `and NotOnOrAfter is ${notOnOrAfter}`);
-        }
+        checkTimeValidity(null, notOnOrAfter, allowedClockSkew);
     }
 }
 
@@ -327,27 +323,19 @@ function checkSubjectConfirmation(root) {
  * 
  * @param {Object} root - A SAML Conditions XMLDoc object returned by xml.parse().
  * @param {string} spEntityId - The EntityID of the Service Provider (SP).
+ * @param {number} [allowedClockSkew] - The allowed clock skew in seconds.
  * @throws {Error} - If Conditions element is missing or the assertion is not valid or expired.
  *                   Also throws an error if the audience restriction is not satisfied.
  */
-function checkConditions(root, spEntityId) {
+function checkConditions(root, spEntityId, allowedClockSkew) {
     if (!root) {
         throw Error("Conditions element is missing in the Assertion");
     }
 
-    const now = new Date();
     const notBefore = root.$attr$NotBefore ? new Date(root.$attr$NotBefore) : null;
     const notOnOrAfter = root.$attr$NotOnOrAfter ? new Date(root.$attr$NotOnOrAfter) : null;
 
-    if (notBefore && notBefore > now) {
-        throw Error(`The Assertion is not yet valid. Current time is ${now} and ` +
-                    `NotBefore is ${notBefore}`);
-    }
-
-    if (notOnOrAfter && notOnOrAfter < now) {
-        throw Error(`The Assertion has expired. Current time is ${now} and ` +
-                    `NotOnOrAfter is ${notOnOrAfter}`);
-    }
+    checkTimeValidity(notBefore, notOnOrAfter, allowedClockSkew);
 
     /* Check the audience restriction */
     if (root.AudienceRestriction && root.AudienceRestriction.Audience) {
@@ -376,11 +364,12 @@ function checkConditions(root, spEntityId) {
  * @param {number} [maxAuthenticationAge] - The maximum age (in seconds) of the authentication
  *                                          statement. If provided, the function will check
  *                                          if the AuthnInstant is within the allowed age.
+ * @param {number} [allowedClockSkew] - The allowed clock skew in seconds.
  * @throws {Error} - If AuthnInstant, SessionNotOnOrAfter, or AuthnContext elements are missing,
  *                   invalid, or expired.
  * @returns {Object} - An object with SessionIndex and AuthnContextClassRef properties.
  */
-function parseAuthnStatement(root, maxAuthenticationAge) {
+function parseAuthnStatement(root, maxAuthenticationAge, allowedClockSkew) {
     /* AuthnStatement element is optional */
     if (!root) {
         return;
@@ -401,14 +390,10 @@ function parseAuthnStatement(root, maxAuthenticationAge) {
     }
 
     const sessionIndex = root.$attr$SessionIndex || null;
-
-    const now = new Date();
     const sessionNotOnOrAfter = root.$attr$SessionNotOnOrAfter ?
                                 new Date(root.$attr$SessionNotOnOrAfter) : null;
-    if (sessionNotOnOrAfter && sessionNotOnOrAfter < now) {
-        throw Error(`The Assertion Session has expired. Current time is ${now} and ` +
-                    `SessionNotOnOrAfter is ${sessionNotOnOrAfter}`);
-    }
+
+    checkTimeValidity(null, sessionNotOnOrAfter, allowedClockSkew);
 
     root = root.AuthnContext;
 
@@ -423,6 +408,31 @@ function parseAuthnStatement(root, maxAuthenticationAge) {
     const authnContextClassRef = root.AuthnContextClassRef.$text;
 
     return [sessionIndex, authnContextClassRef];
+}
+
+/**
+ * Checks if the current time is within the allowed time range specified by
+ * notBefore and notOnOrAfter.
+ *
+ * @param {Date} notBefore - The notBefore time.
+ * @param {Date} notOnOrAfter - The notOnOrAfter time.
+ * @param {number} [allowedClockSkew] - Allowed clock skew in seconds.
+ * @throws {Error} - If the current time is outside the allowed time range.
+ */
+function checkTimeValidity(notBefore, notOnOrAfter, allowedClockSkew) {
+    const now = new Date();
+
+    if (notBefore && notBefore > new Date(now.getTime() + allowedClockSkew * 1000)) {
+        throw Error(`The Assertion is not yet valid. Current time is ${now} ` +
+                    `and NotBefore is ${notBefore}. ` +
+                    `Allowed clock skew is ${allowedClockSkew} seconds.`);
+    }
+
+    if (notOnOrAfter && notOnOrAfter < new Date(now.getTime() - allowedClockSkew * 1000)) {
+        throw Error(`The Assertion has expired. Current time is ${now} ` +
+                    `and NotOnOrAfter is ${notOnOrAfter}. ` +
+                    `Allowed clock skew is ${allowedClockSkew} seconds.`);
+    }
 }
 
 function saveSAMLVariables(r, nameID, authnStatement) {
@@ -1202,6 +1212,7 @@ function parseConfigurationOptions(r, messageType) {
         opt.wantSignedResponse = validateTrueOrFalse('saml_sp_want_signed_response');
         opt.wantSignedAssertion = validateTrueOrFalse('saml_sp_want_signed_assertion');
         opt.wantEncryptedAssertion = validateTrueOrFalse('saml_sp_want_encrypted_assertion');
+        opt.allowedClockSkew = validateClockSkew('saml_allowed_clock_skew', 120);
     }
 
     if (messageType === 'AuthnRequest') {
@@ -1223,6 +1234,7 @@ function parseConfigurationOptions(r, messageType) {
         }
         opt.relayState = r.variables.saml_logout_landing_page;
         opt.nameID = r.variables.saml_name_id;
+        opt.allowedClockSkew = validateClockSkew('saml_allowed_clock_skew', 120);
     }
 
     if (opt.wantSignedResponse || opt.wantSignedAssertion) {
@@ -1289,6 +1301,20 @@ function parseConfigurationOptions(r, messageType) {
         }
 
         return value;
+    }
+
+    function validateClockSkew(name, defaultValue) {
+        const value = r.variables[name];
+        if (value === undefined) {
+            return defaultValue;
+        }
+
+        const parsedValue = parseInt(value, 10);
+        if (isNaN(parsedValue) || parsedValue.toString() !== value) {
+            throw Error(`${prefix} Invalid "${name}": "${value}", must be a valid integer.`);
+        }
+
+        return parsedValue;
     }
 
     return opt;
