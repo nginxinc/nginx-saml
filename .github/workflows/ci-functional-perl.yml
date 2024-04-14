@@ -1,6 +1,9 @@
 name: CI for NJS-based SAML Implementation
 run-name: ${{ github.actor }} is triggering pipeline
-on: [push]
+
+on:
+  push:
+  workflow_dispatch:
 
 jobs:
   test-njs-saml:
