@@ -1334,6 +1334,7 @@ sub digest_saml {
 	$xpc->registerNs('saml', 'urn:oasis:names:tc:SAML:2.0:assertion');
 	$xpc->registerNs('samlp', 'urn:oasis:names:tc:SAML:2.0:protocol');
 	$xpc->registerNs('ds', 'http://www.w3.org/2000/09/xmldsig#');
+	$xpc->registerNs('ec', 'http://www.w3.org/2001/10/xml-exc-c14n#');
 
 	my $parent_node = $signature_node->parentNode;
 	
@@ -1351,6 +1352,12 @@ sub digest_saml {
 
 	my $with_comments = ($transform_algs[1] =~ /WithComments/);
 
+	my ($inclusive_ns) =
+		$xpc->findnodes('./ec:InclusiveNamespaces', $transforms[1]);
+	my $prefix_list = $inclusive_ns
+	? [split ' ', $inclusive_ns->getAttribute('PrefixList')]
+	: undef;
+
 	my $digest_method =
 		$xpc->findnodes('./ds:DigestMethod', $reference_node)->[0];
 	my $alg = $digest_method->getAttribute('Algorithm');
@@ -1359,7 +1366,8 @@ sub digest_saml {
 
 	my $next_sibling = $signature_node->nextSibling();
 	$signature_node->unbindNode();
-	my $parent_node_c14n = $parent_node->toStringEC14N($with_comments);
+	my $parent_node_c14n =
+		$parent_node->toStringEC14N($with_comments, undef, $xpc, $prefix_list);
 	$parent_node->insertBefore($signature_node, $next_sibling);
 
 	my %hash_func_map = (
@@ -1455,7 +1463,6 @@ sub signature_saml {
 	}
 
 	return $result;
-
 }
 
 sub get_time {
@@ -1520,7 +1527,9 @@ sub gen_tmpl {
 		<ds:Reference URI="#${id}">
 			<ds:Transforms>
 				<ds:Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature" />
-				<ds:Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#" />
+				<ds:Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#">
+					<ec:InclusiveNamespaces xmlns:ec="http://www.w3.org/2001/10/xml-exc-c14n#" PrefixList="xs example"/>
+				</ds:Transform>
 			</ds:Transforms>
 			<ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256" />
 			<ds:DigestValue></ds:DigestValue>
@@ -1606,7 +1615,7 @@ END_XML
 			</saml:Attribute>
 			<saml:Attribute Name="http://schemas.example.com/identity/claims/foo"
 							>
-				<saml:AttributeValue xsi:type="xs:string">bar</saml:AttributeValue>
+				<saml:AttributeValue xsi:type="example:string">bar</saml:AttributeValue>
 			</saml:Attribute>
 		</saml:AttributeStatement>
 	</saml:Assertion>
