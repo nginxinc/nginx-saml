@@ -960,7 +960,7 @@ async function digestSAML(signature, produce) {
         throw Error(`unexpected digest transform ${transforms[1]}`);
     }
 
-    const namespaces = transformAlgs[1].InclusiveNamespaces;
+    const namespaces = transforms[1].InclusiveNamespaces;
     const prefixList = namespaces ? namespaces.$attr$PrefixList: null;
 
     const withComments = transformAlgs[1].slice(39) == 'WithComments';
