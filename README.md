@@ -390,6 +390,7 @@ Manual configuration involves reviewing the following files so that they match y
 - **saml_sp_configuration.conf** - this contains the primary configuration for one or more SPs and IdPs in `map{}` blocks
   - Modify all of the `map…$saml_sp_` blocks to match your SP configuration
   - Modify all of the `map…$saml_idp_` blocks to match your IdP configuration
+  	- You may also add another block `map $host $saml_idp_slo_response_url` in case your IdP has different endpoints for SingleLogoutRequest and SingleLogoutResponse. Leaving this empty select the same endpoint for both assertions.
   - Modify the URI defined in `map…$saml_logout_redirect` to specify an unprotected resource to be displayed after requesting the `/logout` location
   - If NGINX Plus is deployed behind another proxy or load balancer, modify the `map…$redirect_base` and `map…$proto` blocks to define how to obtain the original protocol and port number.
   - If you need to adjust the default allowable clock skew from the standard 120 seconds to accommodate time differences between the SP and IdP, add the `map…$saml_sp_clock_skew` block and specify the desired value in seconds.
