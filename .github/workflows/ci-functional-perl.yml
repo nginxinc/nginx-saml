@@ -6,17 +6,63 @@ on:
   workflow_dispatch:
 
 jobs:
-  test-njs-saml:
+  build-njs:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: nginx/nginx
+          ref: release-1.27.4
+          path: nginx
+      - uses: actions/checkout@v4
+        with:
+          repository: bellard/quickjs
+          path: quickjs
+      - uses: actions/checkout@v4
+        with:
+          repository: nginx/njs
+          path: njs
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential \
+                                 libpcre3-dev zlib1g-dev libssl-dev \
+                                 libxml2-dev libxslt-dev
+
+      - name: Build QuickJS
+        working-directory: quickjs
+        run: |
+          CFLAGS='-fPIC' make libquickjs.a
+
+      - name: Build NJS module
+        working-directory: nginx
+        run: |
+          ./auto/configure \
+            --add-dynamic-module=../njs/nginx \
+            --with-cc-opt="-I../quickjs" \
+            --with-ld-opt="-L../quickjs" \
+            --with-compat
+          make -j$(nproc) modules
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: njs-build
+          path: nginx/objs/ngx_http_js_module.so
+
+  test-njs-saml:
+    runs-on: ubuntu-latest
+    needs: build-njs
+    steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
   
       - name: Install prerequisites
         run: |
           sudo apt-get update
           sudo apt-get install -y apt-transport-https lsb-release apt-utils ubuntu-keyring gnupg2 \
-          ca-certificates wget mercurial
+          ca-certificates wget
 
       - name: Prepare keys and certificates
         run: |
@@ -58,9 +104,18 @@ jobs:
         run: |
           git clone https://github.com/nginx/nginx-tests.git
 
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: njs-build
+          path: ${{ runner.temp }}
+
       - name: Run tests
         working-directory: t
         run: |
-          PERL5LIB=../nginx-tests/lib TEST_NGINX_BINARY=/usr/sbin/nginx TEST_NGINX_VERBOSE=1 \
-          TEST_NGINX_GLOBALS="load_module /etc/nginx/modules/ngx_http_js_module-debug.so; mgmt {license_token $RUNNER_TEMP/lic;}" \
+          PERL5LIB=../nginx-tests/lib \
+          TEST_NGINX_BINARY=/usr/sbin/nginx \
+          TEST_NGINX_VERBOSE=1 \
+          TEST_NGINX_GLOBALS="load_module $RUNNER_TEMP/ngx_http_js_module.so; mgmt {license_token $RUNNER_TEMP/lic;}" \
+          TEST_NGINX_GLOBALS_HTTP="js_engine njs;" \
           prove -v .
