@@ -24,6 +24,10 @@ jobs:
           echo '${{ secrets.NGINX_REPO_CRT }}' | sudo tee /etc/ssl/nginx/nginx-repo.crt > /dev/null
           echo '${{ secrets.NGINX_REPO_KEY }}' | sudo tee /etc/ssl/nginx/nginx-repo.key > /dev/null
 
+      - name: Prepare NGINX Plus license token
+        run: |
+          echo '${{ secrets.NGINX_LIC }}' | tee $RUNNER_TEMP/lic > /dev/null
+
       - name: Configure NGINX Plus repository
         run: |
           wget --certificate=/etc/ssl/nginx/nginx-repo.crt --private-key=/etc/ssl/nginx/nginx-repo.key \
@@ -52,10 +56,11 @@ jobs:
 
       - name: Checkout nginx-test
         run: |
-          hg clone http://hg.nginx.org/nginx-tests/
+          git clone https://github.com/nginx/nginx-tests.git
 
       - name: Run tests
         working-directory: t
         run: |
           PERL5LIB=../nginx-tests/lib TEST_NGINX_BINARY=/usr/sbin/nginx TEST_NGINX_VERBOSE=1 \
-          TEST_NGINX_GLOBALS="load_module /etc/nginx/modules/ngx_http_js_module-debug.so;" prove -v .
+          TEST_NGINX_GLOBALS="load_module /etc/nginx/modules/ngx_http_js_module-debug.so; mgmt {license_token $RUNNER_TEMP/lic;}" \
+          prove -v .
