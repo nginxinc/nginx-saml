@@ -1,21 +1,13 @@
 /*
  * JavaScript functions for providing SAML SP with NGINX Plus
  * 
- * Copyright (C) 2023 Nginx, Inc.
+ * Copyright (C) 2025 Nginx, Inc.
  */
 
-export default {
-    handleSingleSignOn,     // Process SAML Response form IdP
-    handleSingleLogout,     // Process SAML LogoutRequest and LogoutResponse from IdP
-    handleAllMessages,      // Process all SAML messages from IdP
-    initiateSingleSignOn,   // Initiate SAML SSO by redirecting to IdP
-    initiateSingleLogout    // Initiate SAML SLO by redirecting to IdP
-};
-
-const xml = require("xml");
-const zlib = require("zlib");
-const querystring = require("querystring");
-const fs = require("fs");
+import xml from 'xml';
+import zlib from 'zlib';
+import querystring from 'querystring';
+import fs from 'fs';
 
 const initiateSingleSignOn = produceSAMLMessage.bind(null, "AuthnRequest");
 const initiateSingleLogout = produceSAMLMessage.bind(null, "LogoutRequest");
@@ -1321,22 +1313,20 @@ function parseConfigurationOptions(r, messageType) {
 }
 
 function getEscapeXML() {
-    const fpc = Function.prototype.call;
-    const _replace = fpc.bind(fpc, String.prototype.replace);
-
-    const tbl = {
-        '<': '&lt;',
-        '>': '&gt;',
-        "'": '&apos;',
-        '"': '&quot;',
-        '&': '&amp;',
+    const escapeMap = {
+      '<': '&lt;',
+      '>': '&gt;',
+      "'": '&apos;',
+      '"': '&quot;',
+      '&': '&amp;'
     };
-    tbl.__proto__ = null;
 
-    return function (str) {
-        return _replace(str, /[<>'"&]/g, c => tbl[c]);
-    }
-};
+    return function escapeXML(str) {
+      if (str == null) return '';
+
+      return String(str).replace(/[<>'"&]/g, character => escapeMap[character]);
+    };
+}
 
 function isUrlOrUrn(str) {
     const urlRegEx = /^((?:(?:https?):)\/\/)?((?:(?:[^:@]+(?::[^:@]+)?|[^:@]+@[^:@]+)(?::\d+)?)|(?:\[[a-fA-F0-9:]+]))(\/(?:[^?#]*))?(\\?(?:[^#]*))?(#(?:.*))?$/;
@@ -1373,3 +1363,11 @@ function readKeysFromFile(keyFile) {
         throw Error(`Failed to read private or public key from file "${keyFile}": ${e.message}`);
     }
 }
+
+export default {
+    handleSingleSignOn,     // Process SAML Response form IdP
+    handleSingleLogout,     // Process SAML LogoutRequest and LogoutResponse from IdP
+    handleAllMessages,      // Process all SAML messages from IdP
+    initiateSingleSignOn,   // Initiate SAML SSO by redirecting to IdP
+    initiateSingleLogout    // Initiate SAML SLO by redirecting to IdP
+};
