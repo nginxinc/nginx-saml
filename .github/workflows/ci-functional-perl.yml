@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v5
   
       - name: Install prerequisites
         run: |
@@ -28,19 +28,21 @@ jobs:
         run: |
           echo '${{ secrets.NGINX_LIC }}' | tee $RUNNER_TEMP/lic > /dev/null
 
+      - name: Import NGINX Plus signing key
+        run: |
+          wget -qO - https://cs.nginx.com/static/keys/nginx_signing.key \
+          | gpg --dearmor \
+          | sudo tee /usr/share/keyrings/nginx-archive-keyring.gpg > /dev/null
+
       - name: Configure NGINX Plus repository
         run: |
-          wget --certificate=/etc/ssl/nginx/nginx-repo.crt --private-key=/etc/ssl/nginx/nginx-repo.key \
-          https://pkgs-test.nginx.com/keys/nginx_test_signing.key
-          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/nginx_test_signing.gpg \
-          --import nginx_test_signing.key
           echo "Acquire::https::pkgs-test.nginx.com::Verify-Peer \"true\";" | sudo tee -a /etc/apt/apt.conf.d/90nginx
           echo "Acquire::https::pkgs-test.nginx.com::Verify-Host \"true\";" | sudo tee -a /etc/apt/apt.conf.d/90nginx
           echo "Acquire::https::pkgs-test.nginx.com::SslCert     \"/etc/ssl/nginx/nginx-repo.crt\";" \
           | sudo tee -a /etc/apt/apt.conf.d/90nginx
           echo "Acquire::https::pkgs-test.nginx.com::SslKey      \"/etc/ssl/nginx/nginx-repo.key\";" \
           | sudo tee -a /etc/apt/apt.conf.d/90nginx
-          printf "deb [signed-by=/usr/share/keyrings/nginx_test_signing.gpg] \
+          printf "deb [signed-by=/usr/share/keyrings/nginx-archive-keyring.gpg] \
           https://pkgs-test.nginx.com/nightly/ubuntu $(lsb_release -cs) nginx-plus\n" \
           | sudo tee /etc/apt/sources.list.d/nginx-plus.list
 
