@@ -100,6 +100,7 @@ async function handleSAMLMessage(messageType, r) {
 
                 /* Define necessary parameters needed to create a SAML LogoutResponse */
                 opt.nameID = nameID[0];
+                opt.nameIDFormat = nameID[1];
                 opt.inResponseTo = id;
                 opt.relayState = params.RelayState;
 
@@ -659,7 +660,8 @@ async function produceSAMLMessage(messageType, r, opt) {
                 break;
             case "LogoutResponse":
                 /* Obtain the status code for the LogoutResponse message */
-                opt.statusCode = getLogoutStatusCode(r.variables.saml_name_id, opt.nameID)
+                opt.statusCode = getLogoutStatusCode(r.variables.saml_name_id, opt.nameID,
+                                    r.variables.saml_name_id_format, opt.nameIDFormat);
                 break;
         }
 
@@ -701,14 +703,17 @@ function setAuthRedirCookie(r) {
     ];
 }
 
-function getLogoutStatusCode(sessionNameID, requestNameID) {
-    /* If no session exists, return Logout Success */
+function getLogoutStatusCode(sessionNameID, requestNameID, sessionFormat, requestFormat) {
+    /* If no session exists, treat as already logged out */
     if (!sessionNameID || sessionNameID === '-') {
         return 'urn:oasis:names:tc:SAML:2.0:status:Success';
     }
-
-    /* If session exists, return Logout Success if NameID matches */
-    return requestNameID === sessionNameID
+    /* Treat missing formats as "unspecified" for comparison */
+    const defaultFmt = 'urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified';
+    const spFormat = (!sessionFormat || sessionFormat === '-') ? defaultFmt : sessionFormat;
+    const requestFmt = (!requestFormat || requestFormat === '-') ? defaultFmt : requestFormat;
+    /* Only return Success if both NameID value and Format match exactly */
+    return (requestNameID === sessionNameID && spFormat === requestFmt)
         ? 'urn:oasis:names:tc:SAML:2.0:status:Success'
         : 'urn:oasis:names:tc:SAML:2.0:status:Requester';
 }
@@ -722,7 +727,9 @@ async function createSAMLMessage(opt, id, messageType) {
             nameIDPolicy: `<samlp:NameIDPolicy Format="${opt.nameIDFormat}" AllowCreate="true"/>`,
         }),
         LogoutRequest: () => ({
-            nameID: `<saml:NameID>${opt.nameID}</saml:NameID>`,
+            nameID: opt.nameIDFormat && opt.nameIDFormat !== 'urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified'
+                   ? `<saml:NameID Format="${opt.nameIDFormat}">${opt.nameID}</saml:NameID>`
+                   : `<saml:NameID>${opt.nameID}</saml:NameID>`,
         }),
         LogoutResponse: () => ({
             inResponseTo: ` InResponseTo="${opt.inResponseTo}"`,
@@ -1234,6 +1241,7 @@ function parseConfigurationOptions(r, messageType) {
         }
         opt.relayState = r.variables.saml_logout_landing_page;
         opt.nameID = r.variables.saml_name_id;
+        opt.nameIDFormat = r.variables.saml_name_id_format;
         opt.allowedClockSkew = validateClockSkew('saml_allowed_clock_skew', 120);
     }
 
