@@ -285,7 +285,7 @@ my $sp_pub = $t->read_file('sp.example.com.crt');
 my $js_filename = 'saml_sp.js';
 $t->write_file($js_filename, read_file("../$js_filename"));
 
-$t->try_run('no njs available')->plan(132);
+$t->try_run('no njs available')->plan(134);
 
 my $api_version = (sort { $a <=> $b } @{ api() })[-1];
 my $kv = "/api/$api_version/http/keyvals";
@@ -393,7 +393,7 @@ like($r, qr{302.*http://sp.example.com:8080/foo\?a=b}s,
 like(get("$kv/saml_response_id"), qr/"_nginx_[^"]+":\s*"1"/,
 	'kv response id');
 like(get("$kv/saml_name_id"), qr/user1/, 'kv response name id');
-like(get("$kv/saml_name_id_format"), qr/unspecified/,
+like(get("$kv/saml_name_id_format"), qr/emailAddress/,
 	'kv response name id format');
 like(get("$kv/saml_session_index"), qr/_nginx_sessionindex_/,
 	'kv response session index');
@@ -654,6 +654,8 @@ is($r->{Destination}, $cfg->{saml_idp_slo_url},
 is($r->{Issuer}, $cfg->{saml_sp_entity_id}, 'sp logout request issuer');
 is($r->{isSigned}, 0, 'sp logout request unsigned');
 is($r->{NameID}, 'user1', 'sp logout request nameid');
+is($r->{NameIDFormat}, 'urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress',
+	'sp logout request nameid format');
 like(get("$kv/saml_request_id"), qr/"$r->{ID}":"1"/,
 	'sp logout request id redeemed');
 
@@ -763,6 +765,12 @@ $r = parse_response(modify_saml_obj($xml_obj, '//saml:NameID', 'text', 'foo',
 	auth_token => $auth_token));
 is($r->{StatusCode}, 'urn:oasis:names:tc:SAML:2.0:status:Requester',
 	'idp logout request wrong nameid');
+
+$r = parse_response(modify_saml_obj($xml_obj, '//saml:NameID',
+	'Format', 'urn:oasis:names:tc:SAML:2.0:nameid-format:transient',
+	auth_token => $auth_token));
+is($r->{StatusCode}, 'urn:oasis:names:tc:SAML:2.0:status:Requester',
+   'idp logout request wrong nameid format');
 
 # Logout Response
 
@@ -958,6 +966,11 @@ sub extract_saml_attributes {
 			verify_saml_signature($signature_node,$sp_pub);
 	} else {
 		$result->{isSigned} = 0;
+	}
+
+	my ($name_id_node) = $xpc->findnodes('//saml:NameID');
+	if ($name_id_node) {
+		$result->{NameIDFormat} = $name_id_node->getAttribute('Format');
 	}
 
 	my ($name_id_policy_node) = $xpc->findnodes('//samlp:NameIDPolicy');
@@ -1563,7 +1576,7 @@ END_XML
 		$signature
 		<saml:Subject>
 			<saml:NameID SPNameQualifier=""
-						Format="urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified"
+						Format="urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress"
 						>user1</saml:NameID>
 			<saml:SubjectConfirmation Method="urn:oasis:names:tc:SAML:2.0:cm:bearer">
 				<saml:SubjectConfirmationData NotOnOrAfter=""
