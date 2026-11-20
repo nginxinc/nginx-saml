@@ -63,8 +63,9 @@ http {
         server localhost:8088;
     }
 
-    map $host $saml_debug {
+    map $http_x_saml_debug $saml_debug {
         default "1";
+        off "";
     }
     
     keyval_zone zone=saml_sp_entity_id:1M state=%%TESTDIR%%/saml_sp_entity_id.json;
@@ -285,7 +286,7 @@ my $sp_pub = $t->read_file('sp.example.com.crt');
 my $js_filename = 'saml_sp.js';
 $t->write_file($js_filename, read_file("../$js_filename"));
 
-$t->try_run('no njs available')->plan(134);
+$t->try_run('no njs available')->plan(135);
 
 my $api_version = (sort { $a <=> $b } @{ api() })[-1];
 my $kv = "/api/$api_version/http/keyvals";
@@ -542,9 +543,12 @@ $r = modify_saml_obj($xml_obj, '//saml:Issuer', 'text', 'foo');
 like($r, qr/HTTP\/1\.1 500.*Issuer "foo" does not match IdP EntityID/s,
 	'response wrong issuer');
 
-$r = modify_saml_obj($xml_obj, '//samlp:StatusCode', 'Value', 'foo');
-like($r, qr/HTTP\/1\.1 500.*Error: StatusCode: foo/s,
+$r = modify_saml_obj($xml_obj, '//samlp:StatusCode', 'Value', 'foo',
+	saml_debug => 'off');
+like($r, qr/HTTP\/1\.1 500.*StatusCode: foo/s,
 	'response status not success');
+my (undef, $error_body) = split(/\r\n\r\n/, $r, 2);
+like($error_body, qr/\A[^\r\n]+\z/, 'no stack with saml_debug disabled');
 
 $r = modify_saml_obj($xml_obj, '//saml:Assertion', 'Version', '1.0');
 like($r, qr/HTTP\/1\.1 500.*Unsupported SAML Version/s,
@@ -1178,6 +1182,7 @@ sub http_post {
 
 	my $auth_token = $extra{auth_token} || '';
 	my $auth_redir = $extra{auth_redir} || '';
+	my $saml_debug = $extra{saml_debug} || '';
 
 	http(<<EOF);
 POST $url HTTP/1.0
@@ -1185,6 +1190,7 @@ Host: sp.example.com
 Content-Length: $len
 Cookie: auth_token=$auth_token
 Cookie: auth_redir=$auth_redir
+X-SAML-Debug: $saml_debug
 Content-Type: application/x-www-form-urlencoded
 
 $body

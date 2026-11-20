@@ -78,3 +78,18 @@ jobs:
           PERL5LIB=../nginx-tests/lib TEST_NGINX_BINARY=/usr/sbin/nginx TEST_NGINX_VERBOSE=1 \
           TEST_NGINX_GLOBALS="load_module /etc/nginx/modules/ngx_http_js_module-debug.so; mgmt {license_token $RUNNER_TEMP/lic;}" \
           prove -v .
+
+      - name: Run tests (QuickJS)
+        working-directory: t
+        shell: bash
+        run: |
+          PERL5LIB=../nginx-tests/lib TEST_NGINX_BINARY=/usr/sbin/nginx TEST_NGINX_VERBOSE=1 \
+          TEST_NGINX_GLOBALS="load_module /etc/nginx/modules/ngx_http_js_module-debug.so; mgmt {license_token $RUNNER_TEMP/lic;}" \
+          TEST_NGINX_GLOBALS_HTTP='js_engine qjs;' \
+          prove -v . | tee "$RUNNER_TEMP/prove-qjs.log"
+
+          # prove exits successfully even when the entire suite is skipped.
+          if ! grep -qx 'Result: PASS' "$RUNNER_TEMP/prove-qjs.log"; then
+            echo '::error::No QuickJS tests ran'
+            exit 1
+          fi
