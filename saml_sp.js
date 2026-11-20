@@ -4,18 +4,10 @@
  * Copyright (C) 2023 Nginx, Inc.
  */
 
-export default {
-    handleSingleSignOn,     // Process SAML Response form IdP
-    handleSingleLogout,     // Process SAML LogoutRequest and LogoutResponse from IdP
-    handleAllMessages,      // Process all SAML messages from IdP
-    initiateSingleSignOn,   // Initiate SAML SSO by redirecting to IdP
-    initiateSingleLogout    // Initiate SAML SLO by redirecting to IdP
-};
-
-const xml = require("xml");
-const zlib = require("zlib");
-const querystring = require("querystring");
-const fs = require("fs");
+import xml from "xml";
+import zlib from "zlib";
+import querystring from "querystring";
+import fs from "fs";
 
 const initiateSingleSignOn = produceSAMLMessage.bind(null, "AuthnRequest");
 const initiateSingleLogout = produceSAMLMessage.bind(null, "LogoutRequest");
@@ -125,7 +117,10 @@ async function handleSAMLMessage(messageType, r) {
 }
 
 function samlError(r, http_code, id, e) {
-    let msg = r.variables.saml_debug ? e.stack : "ReferenceError: " + e.message;    
+    let msg = "ReferenceError: " + e.message;
+    if (r.variables.saml_debug && e.stack) {
+        msg += "\n" + e.stack;
+    }
     r.error(`SAML SSO Error: ReferenceID: ${id} ${msg}`);
 
     r.variables.internal_error_message += `ReferenceID: ${id}`;
@@ -1329,9 +1324,6 @@ function parseConfigurationOptions(r, messageType) {
 }
 
 function getEscapeXML() {
-    const fpc = Function.prototype.call;
-    const _replace = fpc.bind(fpc, String.prototype.replace);
-
     const tbl = {
         '<': '&lt;',
         '>': '&gt;',
@@ -1342,7 +1334,7 @@ function getEscapeXML() {
     tbl.__proto__ = null;
 
     return function (str) {
-        return _replace(str, /[<>'"&]/g, c => tbl[c]);
+        return str.replace(/[<>'"&]/g, c => tbl[c]);
     }
 };
 
@@ -1381,3 +1373,11 @@ function readKeysFromFile(keyFile) {
         throw Error(`Failed to read private or public key from file "${keyFile}": ${e.message}`);
     }
 }
+
+export default {
+    handleSingleSignOn,     // Process SAML Response form IdP
+    handleSingleLogout,     // Process SAML LogoutRequest and LogoutResponse from IdP
+    handleAllMessages,      // Process all SAML messages from IdP
+    initiateSingleSignOn,   // Initiate SAML SSO by redirecting to IdP
+    initiateSingleLogout    // Initiate SAML SLO by redirecting to IdP
+};
